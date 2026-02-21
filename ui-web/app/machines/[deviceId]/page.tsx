@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 
-import { getDeviceById, Device, getShifts, createShift, deleteShift, Shift, ShiftCreate, getUptime, UptimeData } from "@/lib/deviceApi";
+import { getDeviceById, Device, getShifts, createShift, deleteShift, Shift, ShiftCreate, getUptime, UptimeData, getHealthConfigs, createHealthConfig, deleteHealthConfig, updateHealthConfig, HealthConfig, HealthConfigCreate, calculateHealthScore, HealthScore, TelemetryValues, validateHealthWeights, WeightValidation } from "@/lib/deviceApi";
 import { getTelemetry, TelemetryPoint } from "@/lib/dataApi";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -104,6 +104,338 @@ function UptimeCircle({ uptime, onClick }: { uptime: UptimeData | null; onClick:
   );
 }
 
+function HealthScoreCircle({ healthScore, onClick }: { healthScore: HealthScore | null; onClick: () => void }) {
+  const score = healthScore?.health_score ?? 0;
+  const statusColor = healthScore?.status_color || "⚪";
+  
+  const colorMap: Record<string, string> = {
+    "🟢": "#22c55e", "🟡": "#eab308", "🟠": "#f97316", "🔴": "#ef4444", "⚪": "#94a3b8"
+  };
+  const color = healthScore ? colorMap[statusColor] || "#94a3b8" : "#94a3b8";
+  const isStandby = healthScore?.status === "Standby";
+  
+  return (
+    <div className="relative cursor-pointer group" onClick={onClick}>
+      <div className="w-16 h-16">
+        <svg className="w-full h-full transform -rotate-90">
+          <circle cx="32" cy="32" r="28" stroke="#e2e8f0" strokeWidth="6" fill="none" />
+          <circle cx="32" cy="32" r="28" stroke={color} strokeWidth="6" fill="none"
+            strokeDasharray={`${(score / 100) * 176} 176`} className="transition-all duration-500" />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xs font-bold">{isStandby ? "—" : `${score.toFixed(0)}%`}</span>
+          <span className="text-[10px]">{isStandby ? "Standby" : statusColor}</span>
+        </div>
+      </div>
+      
+      <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 w-56 bg-white shadow-lg rounded-lg border p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+        <p className="text-xs font-semibold text-slate-700 mb-2">Health Score Details</p>
+        {healthScore ? (
+          <>
+            <p className="text-xs text-slate-600">Status: <span className="font-medium">{healthScore.status} {healthScore.status_color}</span></p>
+            <p className="text-xs text-slate-600">Machine State: <span className="font-medium">{healthScore.machine_state}</span></p>
+            <p className="text-xs text-slate-600">Parameters: <span className="font-medium">{healthScore.parameters_included} included, {healthScore.parameters_skipped} skipped</span></p>
+            <p className="text-xs text-slate-600">Total Weight: <span className="font-medium">{healthScore.total_weight_configured}%</span></p>
+            {healthScore.parameter_scores.length > 0 && (
+              <div className="mt-2 border-t pt-2">
+                <p className="text-xs font-medium text-slate-700">Parameter Scores:</p>
+                {healthScore.parameter_scores.slice(0, 5).map((p) => (
+                  <p key={p.parameter_name} className="text-xs text-slate-600">
+                    {p.parameter_name}: {p.raw_score}% {p.status_color}
+                  </p>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-slate-500">No health data</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ParameterEfficiencyCard({ 
+  metric, 
+  value, 
+  healthConfig,
+  onConfigure 
+}: { 
+  metric: string; 
+  value: number; 
+  healthConfig: HealthConfig | null;
+  onConfigure: () => void;
+}) {
+  const range = METRIC_RANGES[metric] || [0, 100];
+  
+  const getEfficiencyStatus = (rawScore: number): { label: string; color: string; bgColor: string } => {
+    if (rawScore >= 85) return { label: "Healthy", color: "text-green-600", bgColor: "bg-green-50" };
+    if (rawScore >= 70) return { label: "Slight Warning", color: "text-yellow-600", bgColor: "bg-yellow-50" };
+    if (rawScore >= 40) return { label: "Warning", color: "text-orange-600", bgColor: "bg-orange-50" };
+    return { label: "Critical", color: "text-red-600", bgColor: "bg-red-50" };
+  };
+  
+  const calculateScore = (val: number, config: HealthConfig): number => {
+    const { normal_min, normal_max, max_min, max_max } = config;
+    if (normal_min === null || normal_max === null) return 100;
+    
+    const idealCenter = (normal_min + normal_max) / 2;
+    const halfRange = (normal_max - normal_min) / 2 || 1;
+    
+    if (val >= normal_min && val <= normal_max) {
+      const deviation = Math.abs(val - idealCenter);
+      const score = 100 - (deviation / halfRange) * 30;
+      return Math.max(70, Math.min(100, score));
+    }
+    
+    if (max_min !== null && max_max !== null) {
+      if (val < normal_min) {
+        if (val < max_min) return Math.max(0, 25 - (max_min - val) * 10);
+        const overshoot = normal_min - val;
+        const tolerance = normal_min - max_min || 1;
+        return Math.max(25, Math.min(69, 70 - (overshoot / tolerance) * 45));
+      } else {
+        if (val > max_max) return Math.max(0, 25 - (val - max_max) * 10);
+        const overshoot = val - normal_max;
+        const tolerance = max_max - normal_max || 1;
+        return Math.max(25, Math.min(69, 70 - (overshoot / tolerance) * 45));
+      }
+    }
+    
+    const deviation = val < normal_min ? normal_min - val : val - normal_max;
+    return Math.max(25, Math.min(69, 70 - deviation * 10));
+  };
+  
+  const hasConfig = healthConfig !== null;
+  const score = hasConfig ? calculateScore(value, healthConfig) : null;
+  const status = score !== null ? getEfficiencyStatus(score) : null;
+  
+  return (
+    <div className="p-4 rounded-lg border bg-white">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="font-medium text-sm">{METRIC_LABELS[metric] || metric}</h4>
+        {!hasConfig && (
+          <button onClick={onConfigure} className="text-xs text-blue-600 hover:underline">
+            Configure
+          </button>
+        )}
+      </div>
+      <div className="text-2xl font-bold mb-2">
+        {value.toFixed(2)}{METRIC_UNITS[metric] || ""}
+      </div>
+      {hasConfig && score !== null && status && (
+        <div className={`text-sm ${status.color} ${status.bgColor} px-2 py-1 rounded inline-flex items-center gap-1`}>
+          Efficiency: {score.toFixed(0)}% {status.color.includes("green") ? "🟢" : status.color.includes("yellow") ? "🟡" : status.color.includes("orange") ? "🟠" : "🔴"}
+        </div>
+      )}
+      {hasConfig && (
+        <div className="mt-2 text-xs text-slate-500">
+          Normal: {healthConfig.normal_min} - {healthConfig.normal_max} | Weight: {healthConfig.weight}%
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HealthConfigModal({ 
+  isOpen, 
+  onClose, 
+  deviceId, 
+  metric,
+  existingConfig,
+  allConfigs,
+  onSave,
+  onDelete 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  deviceId: string;
+  metric: string;
+  existingConfig: HealthConfig | null;
+  allConfigs: HealthConfig[];
+  onSave: (config: HealthConfigCreate) => void;
+  onDelete: (configId: number) => void;
+}) {
+  const [formData, setFormData] = useState<HealthConfigCreate>({
+    parameter_name: "",
+    normal_min: undefined,
+    normal_max: undefined,
+    max_min: undefined,
+    max_max: undefined,
+    weight: 0,
+    ignore_zero_value: false,
+    is_active: true,
+  });
+  
+  useEffect(() => {
+    if (!metric) return;
+    
+    if (existingConfig) {
+      setFormData({
+        parameter_name: existingConfig.parameter_name,
+        normal_min: existingConfig.normal_min ?? undefined,
+        normal_max: existingConfig.normal_max ?? undefined,
+        max_min: existingConfig.max_min ?? undefined,
+        max_max: existingConfig.max_max ?? undefined,
+        weight: existingConfig.weight,
+        ignore_zero_value: existingConfig.ignore_zero_value,
+        is_active: existingConfig.is_active,
+      });
+    } else {
+      const defaultRanges: Record<string, { normal: [number, number]; max: [number, number] }> = {
+        pressure: { normal: [2, 6], max: [0, 10] },
+        temperature: { normal: [20, 60], max: [0, 100] },
+        vibration: { normal: [0, 3], max: [0, 8] },
+        power: { normal: [100, 400], max: [0, 500] },
+        voltage: { normal: [210, 240], max: [180, 260] },
+        current: { normal: [2, 15], max: [0, 20] },
+        frequency: { normal: [48, 52], max: [40, 60] },
+        power_factor: { normal: [0.85, 1.0], max: [0.5, 1.0] },
+        speed: { normal: [1200, 1800], max: [800, 2200] },
+        torque: { normal: [50, 300], max: [0, 500] },
+        oil_pressure: { normal: [1, 4], max: [0, 5] },
+        humidity: { normal: [30, 70], max: [0, 100] },
+      };
+      
+      const defaults = defaultRanges[metric];
+      
+      setFormData({
+        parameter_name: metric,
+        normal_min: defaults?.normal[0] ?? undefined,
+        normal_max: defaults?.normal[1] ?? undefined,
+        max_min: defaults?.max[0] ?? undefined,
+        max_max: defaults?.max[1] ?? undefined,
+        weight: 0,
+        ignore_zero_value: false,
+        is_active: true,
+      });
+    }
+  }, [metric, existingConfig]);
+  
+  if (!isOpen) return null;
+  
+  const totalWeight = allConfigs
+    .filter(c => c.is_active && c.parameter_name !== metric)
+    .reduce((sum, c) => sum + c.weight, 0) + formData.weight;
+  
+  const remainingWeight = 100 - allConfigs
+    .filter(c => c.is_active && c.parameter_name !== metric)
+    .reduce((sum, c) => sum + c.weight, 0);
+  
+  const currentWeight = existingConfig?.weight || 0;
+  const maxAllowedWeight = remainingWeight + currentWeight;
+  const isWeightValid = Math.abs(totalWeight - 100) < 0.01;
+  
+  const handleWeightChange = (value: number) => {
+    const otherWeights = allConfigs
+      .filter(c => c.is_active && c.parameter_name !== metric)
+      .reduce((sum, c) => sum + c.weight, 0);
+    
+    const maxAllowed = 100 - otherWeights;
+    
+    if (value > maxAllowed) {
+      setFormData({ ...formData, weight: maxAllowed });
+    } else {
+      setFormData({ ...formData, weight: value });
+    }
+  };
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Configure Health: {metric}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        
+        <div className="space-y-4">
+          <div className="p-3 bg-blue-50 rounded text-sm">
+            <p className="font-medium text-blue-800 mb-2">Normal Range (Optimal)</p>
+            <p className="text-blue-600 text-xs">Values here get 70-100% efficiency score</p>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Normal Min</label>
+              <input type="number" step="0.1" value={formData.normal_min ?? ""} onChange={(e) => setFormData({ ...formData, normal_min: e.target.value ? parseFloat(e.target.value) : undefined })} className="w-full px-3 py-2 border rounded-md" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Normal Max</label>
+              <input type="number" step="0.1" value={formData.normal_max ?? ""} onChange={(e) => setFormData({ ...formData, normal_max: e.target.value ? parseFloat(e.target.value) : undefined })} className="w-full px-3 py-2 border rounded-md" />
+            </div>
+          </div>
+          
+          <div className="p-3 bg-orange-50 rounded text-sm">
+            <p className="font-medium text-orange-800 mb-2">Maximum Range (Limits)</p>
+            <p className="text-orange-600 text-xs">Values outside normal but within max get 25-69% score</p>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Max Min</label>
+              <input type="number" step="0.1" value={formData.max_min ?? ""} onChange={(e) => setFormData({ ...formData, max_min: e.target.value ? parseFloat(e.target.value) : undefined })} className="w-full px-3 py-2 border rounded-md" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Max Max</label>
+              <input type="number" step="0.1" value={formData.max_max ?? ""} onChange={(e) => setFormData({ ...formData, max_max: e.target.value ? parseFloat(e.target.value) : undefined })} className="w-full px-3 py-2 border rounded-md" />
+            </div>
+          </div>
+          
+            <div className="border-t pt-4">
+              <label className="block text-sm font-medium mb-1">
+                Weight (%) 
+                <span className="text-xs text-slate-500 font-normal ml-2">(Max: {maxAllowedWeight}%)</span>
+              </label>
+              <input 
+                type="number" 
+                min="0" 
+                max={maxAllowedWeight}
+                step="1" 
+                value={formData.weight} 
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  if (!isNaN(val) && val >= 0 && val <= maxAllowedWeight) {
+                    setFormData({ ...formData, weight: val });
+                  }
+                }} 
+                className="w-full px-3 py-2 border rounded-md" 
+              />
+              <div className={`text-xs mt-2 p-2 rounded ${isWeightValid ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+                <p>Total Weight: <strong>{totalWeight.toFixed(1)}%</strong> / 100%</p>
+                <p>Remaining: <strong>{remainingWeight.toFixed(1)}%</strong></p>
+                {!isWeightValid && <p className="mt-1">⚠️ Total must equal 100% to calculate health score</p>}
+                {isWeightValid && <p className="mt-1">✓ Weight configured correctly</p>}
+              </div>
+            </div>
+          
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="ignoreZero" checked={formData.ignore_zero_value} onChange={(e) => setFormData({ ...formData, ignore_zero_value: e.target.checked })} className="rounded" />
+            <label htmlFor="ignoreZero" className="text-sm">Ignore zero values (exclude from scoring when machine is off)</label>
+          </div>
+          
+          {existingConfig && (
+            <Button variant="danger" className="w-full" onClick={() => onDelete(existingConfig.id)}>
+              Delete Configuration
+            </Button>
+          )}
+        </div>
+        
+        <div className="flex gap-2 mt-6">
+          <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
+          <Button onClick={() => onSave(formData)} className="flex-1">
+            {isWeightValid ? "Save" : `Save (${totalWeight.toFixed(0)}%)`}
+          </Button>
+        </div>
+        {!isWeightValid && (
+          <p className="text-xs text-center mt-2 text-amber-600">
+            ⚠️ Note: Health score will only calculate when total weight = 100%
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function MachineDashboardPage() {
   const params = useParams();
   const deviceId = (params.deviceId as string) || "";
@@ -112,10 +444,14 @@ export default function MachineDashboardPage() {
   const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [uptime, setUptime] = useState<UptimeData | null>(null);
+  const [healthConfigs, setHealthConfigs] = useState<HealthConfig[]>([]);
+  const [healthScore, setHealthScore] = useState<HealthScore | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "telemetry" | "parameters" | "rules">("overview");
   const [showAddShift, setShowAddShift] = useState(false);
+  const [showHealthConfig, setShowHealthConfig] = useState(false);
+  const [selectedMetric, setSelectedMetric] = useState<string>("");
   const [newShift, setNewShift] = useState<ShiftCreate>({
     shift_name: "", shift_start: "09:00", shift_end: "17:00", maintenance_break_minutes: 0, day_of_week: null, is_active: true,
   });
@@ -123,16 +459,40 @@ export default function MachineDashboardPage() {
 
   const fetchData = async (isInitial = false) => {
     try {
-      const [machineData, telemetryData, uptimeData, shiftsData] = await Promise.all([
+      const [machineData, telemetryData, uptimeData, shiftsData, healthConfigsData] = await Promise.all([
         getDeviceById(deviceId),
         getTelemetry(deviceId, { limit: "100" }),
         getUptime(deviceId),
         getShifts(deviceId),
+        getHealthConfigs(deviceId),
       ]);
       if (isInitial) setMachine(machineData);
       setTelemetry(telemetryData);
       setUptime(uptimeData);
       setShifts(shiftsData);
+      setHealthConfigs(healthConfigsData);
+      
+      const latest = telemetryData.at(-1);
+      if (latest && healthConfigsData.length > 0) {
+        const telemetryValues: TelemetryValues = {
+          values: {},
+          machine_state: "RUNNING",
+        };
+        
+        for (const [key, val] of Object.entries(latest)) {
+          if (typeof val === 'number') {
+            telemetryValues.values[key] = val;
+          }
+        }
+        
+        try {
+          const score = await calculateHealthScore(deviceId, telemetryValues);
+          setHealthScore(score);
+        } catch (e) {
+          console.error("Health score error:", e);
+        }
+      }
+      
       setError(null);
     } catch (err) {
       if (isInitial) setError(err instanceof Error ? err.message : "Failed to fetch data");
@@ -160,6 +520,29 @@ export default function MachineDashboardPage() {
   const handleDeleteShift = async (shiftId: number) => {
     if (!confirm("Delete this shift?")) return;
     try { await deleteShift(deviceId, shiftId); fetchData(false); } catch (err) { alert("Failed: " + (err as Error).message); }
+  };
+
+  const handleSaveHealthConfig = async (config: HealthConfigCreate) => {
+    try {
+      const existing = healthConfigs.find(c => c.parameter_name === config.parameter_name);
+      if (existing) {
+        await updateHealthConfig(deviceId, existing.id, config);
+      } else {
+        await createHealthConfig(deviceId, config);
+      }
+      setShowHealthConfig(false);
+      setSelectedMetric("");
+      fetchData(false);
+    } catch (err) { alert("Failed: " + (err as Error).message); }
+  };
+
+  const handleDeleteHealthConfig = async (configId: number) => {
+    try {
+      await deleteHealthConfig(deviceId, configId);
+      setShowHealthConfig(false);
+      setSelectedMetric("");
+      fetchData(false);
+    } catch (err) { alert("Failed: " + (err as Error).message); }
   };
 
   if (loading) return <div className="p-8"><div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div></div>;
@@ -197,12 +580,13 @@ export default function MachineDashboardPage() {
             <Card>
               <CardHeader><CardTitle>Machine Information</CardTitle></CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-6">
                   <div><p className="text-sm text-slate-500">Name</p><p className="text-sm font-medium mt-1">{machine.name}</p></div>
                   <div><p className="text-sm text-slate-500">ID</p><p className="text-sm font-mono mt-1">{machine.id}</p></div>
                   <div><p className="text-sm text-slate-500">Type</p><p className="text-sm font-medium mt-1 capitalize">{machine.type}</p></div>
                   <div><p className="text-sm text-slate-500">Location</p><p className="text-sm font-medium mt-1">{machine.location || "—"}</p></div>
                   <div><p className="text-sm text-slate-500">Uptime</p><div className="mt-1"><UptimeCircle uptime={uptime} onClick={() => setActiveTab("parameters")} /></div></div>
+                  <div><p className="text-sm text-slate-500">Health</p><div className="mt-1"><HealthScoreCircle healthScore={healthScore} onClick={() => setActiveTab("parameters")} /></div></div>
                 </div>
               </CardContent>
             </Card>
@@ -213,7 +597,17 @@ export default function MachineDashboardPage() {
                   const value = (latestTelemetry as any)[metric];
                   if (typeof value !== 'number') return null;
                   const range = METRIC_RANGES[metric] || [0, 100];
-                  return <RealTimeGauge key={metric} value={value} label={METRIC_LABELS[metric] || metric} unit={METRIC_UNITS[metric] || ""} min={range[0]} max={range[1]} color={METRIC_COLORS[metric] || "#2563eb"} />;
+                  return (
+                    <div key={metric} className="space-y-2">
+                      <RealTimeGauge value={value} label={METRIC_LABELS[metric] || metric} unit={METRIC_UNITS[metric] || ""} min={range[0]} max={range[1]} color={METRIC_COLORS[metric] || "#2563eb"} />
+                      <ParameterEfficiencyCard 
+                        metric={metric} 
+                        value={value} 
+                        healthConfig={healthConfigs.find(c => c.parameter_name === metric) || null}
+                        onConfigure={() => { setSelectedMetric(metric); setShowHealthConfig(true); }}
+                      />
+                    </div>
+                  );
                 })}
               </div>
             )}
@@ -297,11 +691,66 @@ export default function MachineDashboardPage() {
                 )}
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Parameter Health Configuration</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 p-4 bg-blue-50 rounded-lg">
+                  <p className="text-sm text-blue-800"><strong>Health Score:</strong> Configurable ranges and weights for each parameter. The overall health score (0-100%) is calculated when the machine is RUNNING.</p>
+                  <p className="text-sm text-blue-800 mt-1"><strong>Machine State:</strong> Health scoring only activates when machine_state = RUNNING. For OFF, IDLE, UNLOAD, POWER CUT states, the score shows as "Standby".</p>
+                  <p className="text-sm text-blue-800 mt-1"><strong>Weights:</strong> All active parameter weights must sum to 100%.</p>
+                </div>
+                
+                {dynamicMetrics.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {dynamicMetrics.map((metric) => {
+                      const config = healthConfigs.find(c => c.parameter_name === metric);
+                      return (
+                        <div key={metric} className={`p-4 rounded-lg border ${config?.is_active ? "bg-white" : "bg-slate-50 opacity-60"}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium">{METRIC_LABELS[metric] || metric}</h4>
+                            {config && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">Configured</span>}
+                          </div>
+                          {config ? (
+                            <div className="text-sm text-slate-600 space-y-1">
+                              <p>Normal: {config.normal_min ?? "—"} - {config.normal_max ?? "—"}</p>
+                              <p>Max: {config.max_min ?? "—"} - {config.max_max ?? "—"}</p>
+                              <p>Weight: {config.weight}%</p>
+                              <p>Ignore Zero: {config.ignore_zero_value ? "Yes" : "No"}</p>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-slate-500">Not configured</p>
+                          )}
+                          <Button size="sm" className="mt-3 w-full" onClick={() => { setSelectedMetric(metric); setShowHealthConfig(true); }}>
+                            {config ? "Edit" : "Configure"}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-slate-500">No telemetry parameters available</div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         )}
 
         {activeTab === "rules" && <MachineRulesView deviceId={deviceId} />}
       </div>
+      
+      <HealthConfigModal
+        isOpen={showHealthConfig}
+        onClose={() => { setShowHealthConfig(false); setSelectedMetric(""); }}
+        deviceId={deviceId}
+        metric={selectedMetric}
+        existingConfig={healthConfigs.find(c => c.parameter_name === selectedMetric) || null}
+        allConfigs={healthConfigs}
+        onSave={handleSaveHealthConfig}
+        onDelete={handleDeleteHealthConfig}
+      />
     </div>
   );
 }

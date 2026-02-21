@@ -21,6 +21,14 @@ from app.schemas.device import (
     ShiftSingleResponse,
     ShiftDeleteResponse,
     UptimeResponse,
+    ParameterHealthConfigCreate,
+    ParameterHealthConfigUpdate,
+    ParameterHealthConfigResponse,
+    ParameterHealthConfigListResponse,
+    ParameterHealthConfigSingleResponse,
+    WeightValidationResponse,
+    TelemetryValues,
+    HealthScoreResponse,
 )
 from app.services.device import DeviceService
 import logging
@@ -430,3 +438,254 @@ async def get_uptime(
     uptime = await service.calculate_uptime(device_id, tenant_id)
     
     return UptimeResponse(**uptime)
+
+
+# =====================================================
+# Health Configuration Endpoints
+# =====================================================
+
+@router.post(
+    "/{device_id}/health-config",
+    response_model=ParameterHealthConfigSingleResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"model": ErrorResponse, "description": "Validation error"},
+        404: {"model": ErrorResponse, "description": "Device not found"},
+    },
+)
+async def create_health_config(
+    device_id: str,
+    config_data: ParameterHealthConfigCreate,
+    tenant_id: Optional[str] = Query(None, description="Tenant ID for multi-tenancy"),
+    db: AsyncSession = Depends(get_db),
+) -> ParameterHealthConfigSingleResponse:
+    """Create a new health configuration for a device parameter."""
+    from app.services.health_config import HealthConfigService
+    
+    config_dict = config_data.model_dump()
+    config_dict["device_id"] = device_id
+    config_dict["tenant_id"] = tenant_id
+    
+    config_create = ParameterHealthConfigCreate(**config_dict)
+    
+    service = HealthConfigService(db)
+    config = await service.create_health_config(config_create)
+    
+    return ParameterHealthConfigSingleResponse(data=config)
+
+
+@router.get(
+    "/{device_id}/health-config",
+    response_model=ParameterHealthConfigListResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Device not found"},
+    },
+)
+async def list_health_configs(
+    device_id: str,
+    tenant_id: Optional[str] = Query(None, description="Tenant ID for multi-tenancy"),
+    db: AsyncSession = Depends(get_db),
+) -> ParameterHealthConfigListResponse:
+    """List all health configurations for a device."""
+    from app.services.health_config import HealthConfigService
+    
+    service = HealthConfigService(db)
+    configs = await service.get_health_configs_by_device(device_id, tenant_id)
+    
+    return ParameterHealthConfigListResponse(data=configs, total=len(configs))
+
+
+@router.get(
+    "/{device_id}/health-config/{config_id}",
+    response_model=ParameterHealthConfigSingleResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Configuration not found"},
+    },
+)
+async def get_health_config(
+    device_id: str,
+    config_id: int,
+    tenant_id: Optional[str] = Query(None, description="Tenant ID for multi-tenancy"),
+    db: AsyncSession = Depends(get_db),
+) -> ParameterHealthConfigSingleResponse:
+    """Get a specific health configuration by ID."""
+    from app.services.health_config import HealthConfigService
+    
+    service = HealthConfigService(db)
+    config = await service.get_health_config(config_id, device_id, tenant_id)
+    
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "HEALTH_CONFIG_NOT_FOUND",
+                    "message": f"Health configuration with ID '{config_id}' not found for device '{device_id}'",
+                },
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+    
+    return ParameterHealthConfigSingleResponse(data=config)
+
+
+@router.put(
+    "/{device_id}/health-config/{config_id}",
+    response_model=ParameterHealthConfigSingleResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Configuration not found"},
+    },
+)
+async def update_health_config(
+    device_id: str,
+    config_id: int,
+    config_data: ParameterHealthConfigUpdate,
+    tenant_id: Optional[str] = Query(None, description="Tenant ID for multi-tenancy"),
+    db: AsyncSession = Depends(get_db),
+) -> ParameterHealthConfigSingleResponse:
+    """Update an existing health configuration."""
+    from app.services.health_config import HealthConfigService
+    
+    service = HealthConfigService(db)
+    config = await service.update_health_config(config_id, device_id, tenant_id, config_data)
+    
+    if not config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "HEALTH_CONFIG_NOT_FOUND",
+                    "message": f"Health configuration with ID '{config_id}' not found for device '{device_id}'",
+                },
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+    
+    return ParameterHealthConfigSingleResponse(data=config)
+
+
+@router.delete(
+    "/{device_id}/health-config/{config_id}",
+    response_model=dict,
+    responses={
+        404: {"model": ErrorResponse, "description": "Configuration not found"},
+    },
+)
+async def delete_health_config(
+    device_id: str,
+    config_id: int,
+    tenant_id: Optional[str] = Query(None, description="Tenant ID for multi-tenancy"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete a health configuration."""
+    from app.services.health_config import HealthConfigService
+    
+    service = HealthConfigService(db)
+    success = await service.delete_health_config(config_id, device_id, tenant_id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "HEALTH_CONFIG_NOT_FOUND",
+                    "message": f"Health configuration with ID '{config_id}' not found for device '{device_id}'",
+                },
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
+    
+    return {
+        "success": True,
+        "message": f"Health configuration {config_id} deleted successfully",
+        "config_id": config_id
+    }
+
+
+@router.get(
+    "/{device_id}/health-config/validate-weights",
+    response_model=WeightValidationResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Device not found"},
+    },
+)
+async def validate_health_weights(
+    device_id: str,
+    tenant_id: Optional[str] = Query(None, description="Tenant ID for multi-tenancy"),
+    db: AsyncSession = Depends(get_db),
+) -> WeightValidationResponse:
+    """Validate that all health parameter weights sum to 100%."""
+    from app.services.health_config import HealthConfigService
+    
+    service = HealthConfigService(db)
+    validation = await service.validate_weights(device_id, tenant_id)
+    
+    return WeightValidationResponse(**validation)
+
+
+@router.post(
+    "/{device_id}/health-config/bulk",
+    response_model=ParameterHealthConfigListResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"model": ErrorResponse, "description": "Validation error"},
+        404: {"model": ErrorResponse, "description": "Device not found"},
+    },
+)
+async def bulk_create_health_configs(
+    device_id: str,
+    configs: list[ParameterHealthConfigCreate],
+    tenant_id: Optional[str] = Query(None, description="Tenant ID for multi-tenancy"),
+    db: AsyncSession = Depends(get_db),
+) -> ParameterHealthConfigListResponse:
+    """Bulk create or update health configurations for a device."""
+    from app.services.health_config import HealthConfigService
+    
+    config_dicts = [c.model_dump() for c in configs]
+    for config_dict in config_dicts:
+        config_dict["device_id"] = device_id
+        config_dict["tenant_id"] = tenant_id
+    
+    service = HealthConfigService(db)
+    result = await service.bulk_create_or_update(device_id, tenant_id, config_dicts)
+    
+    return ParameterHealthConfigListResponse(data=result, total=len(result))
+
+
+# =====================================================
+# Health Score Endpoints
+# =====================================================
+
+@router.post(
+    "/{device_id}/health-score",
+    response_model=HealthScoreResponse,
+    responses={
+        404: {"model": ErrorResponse, "description": "Device not found"},
+    },
+)
+async def calculate_health_score(
+    device_id: str,
+    telemetry: TelemetryValues,
+    tenant_id: Optional[str] = Query(None, description="Tenant ID for multi-tenancy"),
+    db: AsyncSession = Depends(get_db),
+) -> HealthScoreResponse:
+    """Calculate device health score based on current telemetry values.
+    
+    The machine_state field determines if health scoring is active:
+    - RUNNING: Full health calculation
+    - OFF, IDLE, UNLOAD, POWER CUT: Returns standby status
+    """
+    from app.services.health_config import HealthConfigService
+    
+    service = HealthConfigService(db)
+    result = await service.calculate_health_score(
+        device_id,
+        telemetry.values,
+        telemetry.machine_state or "RUNNING",
+        tenant_id
+    )
+    
+    return HealthScoreResponse(**result)

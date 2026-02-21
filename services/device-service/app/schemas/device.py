@@ -189,3 +189,114 @@ class UptimeResponse(BaseModel):
     message: str = Field(..., description="Status message")
     
     model_config = ConfigDict(from_attributes=True)
+
+
+# =====================================================
+# Health Configuration Schemas
+# =====================================================
+
+class ParameterHealthConfigBase(BaseModel):
+    """Base schema for parameter health configuration."""
+    
+    parameter_name: str = Field(..., min_length=1, max_length=100, description="Parameter name (e.g., pressure, temperature)")
+    normal_min: Optional[float] = Field(None, description="Normal range minimum")
+    normal_max: Optional[float] = Field(None, description="Normal range maximum")
+    max_min: Optional[float] = Field(None, description="Maximum range minimum")
+    max_max: Optional[float] = Field(None, description="Maximum range maximum")
+    weight: float = Field(default=0.0, ge=0, le=100, description="Weight percentage (0-100)")
+    ignore_zero_value: bool = Field(default=False, description="Ignore zero values for this parameter")
+    is_active: bool = Field(default=True, description="Whether this parameter is active for health scoring")
+
+
+class ParameterHealthConfigCreate(ParameterHealthConfigBase):
+    """Schema for creating parameter health configuration."""
+    
+    device_id: Optional[str] = Field(None, description="Device ID (set automatically from URL)")
+    tenant_id: Optional[str] = Field(None, description="Tenant ID (set automatically from header)")
+
+
+class ParameterHealthConfigUpdate(BaseModel):
+    """Schema for updating parameter health configuration."""
+    
+    parameter_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    normal_min: Optional[float] = None
+    normal_max: Optional[float] = None
+    max_min: Optional[float] = None
+    max_max: Optional[float] = None
+    weight: Optional[float] = Field(None, ge=0, le=100)
+    ignore_zero_value: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class ParameterHealthConfigResponse(ParameterHealthConfigBase):
+    """Schema for parameter health configuration response."""
+    
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    device_id: str
+    tenant_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ParameterHealthConfigListResponse(BaseModel):
+    """Schema for health configuration list response."""
+    
+    success: bool = True
+    data: list[ParameterHealthConfigResponse]
+    total: int
+
+
+class ParameterHealthConfigSingleResponse(BaseModel):
+    """Schema for single health configuration response."""
+    
+    success: bool = True
+    data: ParameterHealthConfigResponse
+
+
+class WeightValidationResponse(BaseModel):
+    """Schema for weight validation response."""
+    
+    is_valid: bool
+    total_weight: float
+    message: str
+    parameters: list[dict]
+
+
+# =====================================================
+# Health Score Calculation Schemas
+# =====================================================
+
+class TelemetryValues(BaseModel):
+    """Schema for telemetry values for health calculation."""
+    
+    values: dict[str, float] = Field(..., description="Dictionary of parameter names to values")
+    machine_state: Optional[str] = Field("RUNNING", description="Machine operational state")
+
+
+class ParameterScore(BaseModel):
+    """Schema for individual parameter score."""
+    
+    parameter_name: str
+    value: float
+    raw_score: float
+    weighted_score: float
+    weight: float
+    status: str
+    status_color: str
+
+
+class HealthScoreResponse(BaseModel):
+    """Schema for health score response."""
+    
+    device_id: str
+    health_score: Optional[float] = None
+    status: str
+    status_color: str
+    message: str
+    machine_state: str
+    parameter_scores: list[ParameterScore]
+    total_weight_configured: float
+    parameters_included: int
+    parameters_skipped: int

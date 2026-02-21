@@ -75,6 +75,13 @@ class Device(Base):
         lazy="selectin"
     )
     
+    health_configs: Mapped[list["ParameterHealthConfig"]] = relationship(
+        "ParameterHealthConfig",
+        back_populates="device",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    
     def __repr__(self) -> str:
         return f"<Device(device_id={self.device_id}, name={self.device_name}, type={self.device_type})>"
     
@@ -156,3 +163,54 @@ class DeviceShift(Base):
     def effective_runtime_minutes(self) -> int:
         """Calculate effective runtime after maintenance break."""
         return self.planned_duration_minutes - self.maintenance_break_minutes
+
+
+class ParameterHealthConfig(Base):
+    """Parameter health configuration for device health scoring.
+    
+    Each parameter can have configurable ranges and weights for health calculation.
+    """
+    
+    __tablename__ = "parameter_health_config"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    device_id: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("devices.device_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    
+    tenant_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    
+    parameter_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    
+    normal_min: Mapped[Optional[float]] = mapped_column(nullable=True)
+    normal_max: Mapped[Optional[float]] = mapped_column(nullable=True)
+    
+    max_min: Mapped[Optional[float]] = mapped_column(nullable=True)
+    max_max: Mapped[Optional[float]] = mapped_column(nullable=True)
+    
+    weight: Mapped[float] = mapped_column(default=0.0, nullable=False)
+    
+    ignore_zero_value: Mapped[bool] = mapped_column(default=False, nullable=False)
+    
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False
+    )
+    
+    device: Mapped["Device"] = relationship("Device", back_populates="health_configs")
+    
+    def __repr__(self) -> str:
+        return f"<ParameterHealthConfig(id={self.id}, device_id={self.device_id}, parameter={self.parameter_name})>"
