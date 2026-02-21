@@ -1,0 +1,281 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: energy_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_USER: energy
+      MYSQL_PASSWORD: energy
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init-scripts/mysql:/docker-entrypoint-initdb.d
+    networks:
+      - energy-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "energy", "-penergy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: influxdb
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: admin123
+      DOCKER_INFLUXDB_INIT_ORG: energy-org
+      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: energy-token
+      INFLUXD_HTTP_BIND_ADDRESS: :8086
+    ports:
+      - "8086:8086"
+    networks:
+      - energy-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - energy-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set local http://minio:9000 minio minio123;
+      /usr/bin/mc mb local/energy-platform-datasets;
+      /usr/bin/mc anonymous set public local/energy-platform-datasets;
+      exit 0;
+      "
+    networks:
+      - energy-net
+
+  emqx:
+    image: emqx/emqx:5.3.0
+    container_name: emqx
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "8084:8084"
+      - "8883:8883"
+      - "18083:18083"
+    networks:
+      - energy-net
+    environment:
+      EMQX_ALLOW_ANONYMOUS: "true"
+      EMQX_LOADED_PLUGINS: "emqx_retained,emqx_rule_engine,emqx_dashboard"
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  device-service:
+    build: ./services/device-service
+    container_name: device-service
+    environment:
+      - DATABASE_URL=mysql+aiomysql://energy:energy@mysql:3306/energy_device_db
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - energy-net
+
+  data-service:
+    build: ./services/data-service
+    container_name: data-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - PORT=8081
+      - HOST=0.0.0.0
+      - MQTT_BROKER_HOST=emqx
+      - MQTT_BROKER_PORT=1883
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=energy-token
+      - INFLUXDB_ORG=energy-org
+      - INFLUXDB_BUCKET=telemetry
+      - DEVICE_SERVICE_URL=http://device-service:8000
+      - RULE_ENGINE_URL=http://rule-engine-service:8002
+    ports:
+      - "8081:8081"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      device-service:
+        condition: service_started
+    networks:
+      - energy-net
+
+  rule-engine-service:
+    build: ./services/rule-engine-service
+    container_name: rule-engine-service
+    environment:
+      - DATABASE_URL=mysql+aiomysql://energy:energy@mysql:3306/energy_rule_db
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
+    ports:
+      - "8002:8002"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - energy-net
+
+  analytics-service:
+    build: ./services/analytics-service
+    container_name: analytics-service
+    environment:
+      - APP_ENV=development
+      - LOG_LEVEL=INFO
+      - API_PORT=8003
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=energy_analytics_db
+      - MYSQL_USER=energy
+      - MYSQL_PASSWORD=energy
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY_ID=minio
+      - S3_SECRET_ACCESS_KEY=minio123
+      - S3_BUCKET_NAME=energy-platform-datasets
+    ports:
+      - "8003:8003"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - energy-net
+
+  data-export-service:
+    build: ./services/data-export-service
+    container_name: data-export-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - PORT=8080
+      - HOST=0.0.0.0
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=energy-token
+      - INFLUXDB_ORG=energy-org
+      - INFLUXDB_BUCKET=telemetry
+      - S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=minio
+      - AWS_SECRET_ACCESS_KEY=minio123
+      - S3_BUCKET=energy-platform-datasets
+      - CHECKPOINT_DB_HOST=mysql
+      - CHECKPOINT_DB_PORT=3306
+      - CHECKPOINT_DB_NAME=energy_export_db
+      - CHECKPOINT_DB_USER=energy
+      - CHECKPOINT_DB_PASSWORD=energy
+      - DATA_SERVICE_URL=http://data-service:8081
+    ports:
+      - "8080:8080"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    networks:
+      - energy-net
+
+  reporting-service:
+    build: ./services/reporting-service
+    container_name: reporting-service
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - PORT=8085
+      - HOST=0.0.0.0
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=energy
+      - MYSQL_PASSWORD=energy
+      - MYSQL_DATABASE=energy_reporting_db
+      - AWS_ACCESS_KEY_ID=minio
+      - AWS_SECRET_ACCESS_KEY=minio123
+      - AWS_REGION=us-east-1
+      - S3_BUCKET_NAME=energy-platform-datasets
+      - AWS_ENDPOINT_URL=http://minio:9000
+      - AWS_ENDPOINT_URL_S3=http://minio:9000
+    ports:
+      - "8085:8085"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - energy-net
+
+  ui-web:
+    build: ./ui-web
+    container_name: ui-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - device-service
+      - data-service
+      - rule-engine-service
+      - analytics-service
+      - data-export-service
+    networks:
+      - energy-net
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3000
+
+  telemetry-simulator:
+    build: ./tools/device-simulator
+    container_name: telemetry-simulator
+    environment:
+      - MQTT_BROKER_HOST=emqx
+      - MQTT_BROKER_PORT=1883
+    depends_on:
+      emqx:
+        condition: service_healthy
+    networks:
+      - energy-net
+    profiles:
+      - demo
+
+networks:
+  energy-net:
+    driver: bridge
+
+volumes:
+  mysql_data:
