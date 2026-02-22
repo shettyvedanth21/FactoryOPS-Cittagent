@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { RealTimeGauge } from "@/components/charts/Gauge";
 import { TimeSeriesChart } from "@/components/charts/telemetry-charts";
 import { MachineRulesView } from "@/app/machines/[deviceId]/rules/machine-rules-view";
+import { formatIST, getRelativeTime } from "@/lib/utils";
 
 const METRIC_LABELS: Record<string, string> = {
   power: "Power", voltage: "Voltage", current: "Current", temperature: "Temperature",
@@ -456,7 +457,8 @@ export default function MachineDashboardPage() {
         getShifts(deviceId),
         getHealthConfigs(deviceId),
       ]);
-      if (isInitial) setMachine(machineData);
+      // Always update machine data to get latest last_seen_timestamp
+      setMachine(machineData);
       setTelemetry(telemetryData);
       setUptime(uptimeData);
       setShifts(shiftsData);
@@ -548,9 +550,19 @@ export default function MachineDashboardPage() {
           <div className="flex items-center gap-2 text-sm text-slate-500 mb-4">
             <Link href="/machines" className="hover:text-slate-900">Machines</Link><span>/</span><span className="text-slate-900">{machine.name}</span>
           </div>
-          <div className="flex items-start justify-between">
-            <div><h1 className="text-2xl font-bold text-slate-900">{machine.name}</h1><p className="text-slate-500 font-mono mt-1">{machine.id}</p></div>
-            <StatusBadge status={machine.status} />
+            <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">{machine.name}</h1>
+              <p className="text-slate-500 font-mono mt-1">{machine.id}</p>
+              {machine.last_seen_timestamp ? (
+                <p className="text-xs text-slate-500 mt-1">
+                  Last seen: {formatIST(machine.last_seen_timestamp)}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 mt-1">Last seen: No data received</p>
+              )}
+            </div>
+            <StatusBadge status={machine.runtime_status} />
           </div>
         </div>
 

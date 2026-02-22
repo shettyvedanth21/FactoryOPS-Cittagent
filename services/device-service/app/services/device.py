@@ -4,7 +4,7 @@ from typing import Optional, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.device import Device, DeviceStatus
+from app.models.device import Device
 from app.repositories.device import DeviceRepository
 from app.schemas.device import DeviceCreate, DeviceUpdate
 import logging
@@ -27,6 +27,9 @@ class DeviceService:
     async def create_device(self, device_data: DeviceCreate) -> Device:
         """Create a new device.
         
+        Note: status field is DEPRECATED and ignored.
+        Runtime status is computed automatically based on telemetry activity.
+        
         Args:
             device_data: Device creation data
             
@@ -45,6 +48,7 @@ class DeviceService:
             raise ValueError(f"Device with ID '{device_data.device_id}' already exists")
         
         # Create device entity
+        # Note: status is now legacy_status, runtime status is computed dynamically
         device = Device(
             device_id=device_data.device_id,
             tenant_id=device_data.tenant_id,
@@ -53,8 +57,9 @@ class DeviceService:
             manufacturer=device_data.manufacturer,
             model=device_data.model,
             location=device_data.location,
-            status=DeviceStatus(device_data.status),
+            legacy_status="active",  # Default legacy status (deprecated)
             metadata_json=device_data.metadata_json,
+            # last_seen_timestamp defaults to None, meaning STOPPED initially
         )
         
         # Persist to database
@@ -143,9 +148,11 @@ class DeviceService:
         # Update only provided fields
         update_data = device_data.model_dump(exclude_unset=True)
         
+        # Handle status field (deprecated) - map to legacy_status
+        if "status" in update_data:
+            update_data["legacy_status"] = update_data.pop("status")
+        
         for field, value in update_data.items():
-            if field == "status" and value:
-                value = DeviceStatus(value)
             setattr(device, field, value)
         
         # Persist changes
@@ -191,3 +198,41 @@ class DeviceService:
         )
         
         return True
+    
+    async def update_last_seen(self, device_id: str) -> Optional[Device]:
+        """Update last_seen_timestamp for a device when telemetry is received.
+        
+        This is called by the telemetry service when data is received for a device.
+        The runtime status will automatically be computed based on this timestamp.
+        
+        Args:
+            device_id: Device identifier
+            
+        Returns:
+            Updated Device instance or None if not found
+        """
+        device = await self._repository.get_by_id(device_id)
+        if not device:
+            logger.warning(
+                "Attempted to update last_seen for non-existent device",
+                extra={"device_id": device_id}
+            )
+            return None
+        
+        # Update last_seen_timestamp to now
+        device.update_last_seen()
+        
+        # Persist changes
+        updated_device = await self._repository.update(device)
+        await self._session.commit()
+        
+        logger.debug(
+            "Device last_seen updated",
+            extra={
+                "device_id": device_id,
+                "last_seen": updated_device.last_seen_timestamp,
+                "runtime_status": updated_device.get_runtime_status(),
+            }
+        )
+        
+        return updated_device

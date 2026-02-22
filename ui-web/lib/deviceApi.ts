@@ -9,16 +9,20 @@ interface BackendDevice {
   device_type: string;
   status: string;
   location: string | null;
+  runtime_status: string;
+  last_seen_timestamp: string | null;
 }
 
 /**
- * UI shape
+ * UI shape - uses runtime_status for dynamic device state
  */
 export interface Device {
   id: string;
   name: string;
   type: string;
   status: string;
+  runtime_status: string;
+  last_seen_timestamp: string | null;
   location: string;
 }
 
@@ -37,6 +41,8 @@ function mapDevice(d: BackendDevice): Device {
     name: d.device_name,
     type: d.device_type,
     status: d.status,
+    runtime_status: d.runtime_status || "stopped",
+    last_seen_timestamp: d.last_seen_timestamp,
     location: d.location ?? "",
   };
 }

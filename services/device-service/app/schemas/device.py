@@ -3,22 +3,29 @@
 from datetime import datetime, time
 from typing import Optional
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class DeviceBase(BaseModel):
-    """Base schema with common device fields."""
+    """Base schema with common device fields.
+    
+    Note: status field is DEPRECATED. Use runtime_status instead.
+    Runtime status is computed dynamically based on telemetry activity.
+    """
     
     device_name: str = Field(..., min_length=1, max_length=255, description="Human-readable device name")
     device_type: str = Field(..., min_length=1, max_length=100, description="Device type (e.g., bulb, compressor)")
     manufacturer: Optional[str] = Field(None, max_length=255, description="Device manufacturer")
     model: Optional[str] = Field(None, max_length=255, description="Device model")
     location: Optional[str] = Field(None, max_length=500, description="Physical location of device")
-    status: str = Field(default="active", pattern="^(active|inactive|maintenance|error)$")
 
 
 class DeviceCreate(DeviceBase):
-    """Schema for creating a new device."""
+    """Schema for creating a new device.
+    
+    Note: status field is DEPRECATED and ignored. Runtime status is computed
+    automatically based on telemetry activity (RUNNING/STOPPED).
+    """
     
     device_id: str = Field(
         ...,
@@ -29,22 +36,34 @@ class DeviceCreate(DeviceBase):
     )
     tenant_id: Optional[str] = Field(None, max_length=50, description="Tenant ID for multi-tenancy")
     metadata_json: Optional[str] = Field(None, description="Additional metadata as JSON string")
+    
+    # DEPRECATED: Status is now computed dynamically from telemetry
+    # This field is kept for backward compatibility but ignored
+    status: Optional[str] = Field(None, description="DEPRECATED: Ignored. Use runtime_status instead.")
 
 
 class DeviceUpdate(BaseModel):
-    """Schema for updating an existing device."""
+    """Schema for updating an existing device.
+    
+    Note: status field is DEPRECATED and ignored. Runtime status is computed
+    automatically based on telemetry activity.
+    """
     
     device_name: Optional[str] = Field(None, min_length=1, max_length=255)
     device_type: Optional[str] = Field(None, min_length=1, max_length=100)
     manufacturer: Optional[str] = Field(None, max_length=255)
     model: Optional[str] = Field(None, max_length=255)
     location: Optional[str] = Field(None, max_length=500)
-    status: Optional[str] = Field(None, pattern="^(active|inactive|maintenance|error)$")
+    # DEPRECATED: Status is now computed dynamically
+    status: Optional[str] = Field(None, description="DEPRECATED: Ignored.")
     metadata_json: Optional[str] = Field(None, description="Additional metadata as JSON string")
 
 
 class DeviceResponse(DeviceBase):
-    """Schema for device response."""
+    """Schema for device response.
+    
+    Includes both legacy status (deprecated) and runtime_status (computed).
+    """
     
     model_config = ConfigDict(from_attributes=True)
     
@@ -54,6 +73,13 @@ class DeviceResponse(DeviceBase):
     created_at: datetime
     updated_at: datetime
     deleted_at: Optional[datetime] = None
+    
+    # Legacy status - DEPRECATED but included for backward compatibility
+    legacy_status: str = "active"
+    
+    # Runtime status - computed dynamically based on telemetry
+    runtime_status: str = "stopped"
+    last_seen_timestamp: Optional[datetime] = None
 
 
 class DeviceListResponse(BaseModel):

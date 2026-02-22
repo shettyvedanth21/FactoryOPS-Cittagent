@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import Link from "next/link";
 import { getDeviceById, Device } from "@/lib/deviceApi";
+import { formatIST, getRelativeTime } from "@/lib/utils";
 
 interface DeviceLayoutProps {
   children: React.ReactNode;
@@ -88,14 +89,12 @@ export default function DeviceLayout({ children }: DeviceLayoutProps) {
                       </h1>
                       <span
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          device.status === "active"
+                          device.runtime_status === "running"
                             ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                            : device.status === "inactive"
-                            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
                             : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
                         }`}
                       >
-                        {device.status}
+                        {device.runtime_status === "running" ? "RUNNING" : "STOPPED"}
                       </span>
                     </div>
 
@@ -111,6 +110,16 @@ export default function DeviceLayout({ children }: DeviceLayoutProps) {
                         <span>
                           <span className="font-medium">Location:</span>{" "}
                           {device.location}
+                        </span>
+                      )}
+                      {device.last_seen_timestamp ? (
+                        <span>
+                          <span className="font-medium">Last Seen:</span>{" "}
+                          {formatIST(device.last_seen_timestamp)}
+                        </span>
+                      ) : (
+                        <span>
+                          <span className="font-medium">Last Seen:</span> No data received
                         </span>
                       )}
                     </div>

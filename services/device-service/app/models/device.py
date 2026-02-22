@@ -1,6 +1,6 @@
 """SQLAlchemy models for Device Service."""
 
-from datetime import datetime, time
+from datetime import datetime, time, timezone, timedelta
 from enum import Enum
 from typing import Optional
 
@@ -9,20 +9,33 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
+# Configurable timeout threshold for telemetry (in seconds)
+TELEMETRY_TIMEOUT_SECONDS = 60  # Device considered STOPPED if no telemetry for 60 seconds
+
 
 class DeviceStatus(str, Enum):
-    """Device status enumeration."""
+    """Device status enumeration (LEGACY - for backward compatibility only)."""
     ACTIVE = "active"
     INACTIVE = "inactive"
     MAINTENANCE = "maintenance"
     ERROR = "error"
 
 
+class RuntimeStatus(str, Enum):
+    """Runtime status derived from telemetry activity."""
+    RUNNING = "running"
+    STOPPED = "stopped"
+
+
 class Device(Base):
     """Device model representing IoT devices in the system.
     
     This model is designed to be multi-tenant ready. The tenant_id field
-    is included for future multi-tenant support but is nullable for Phase-1.
+    is included for future multi-tenancy support but is nullable for Phase-1.
+    
+    Runtime status is computed dynamically based on last_seen_timestamp:
+    - RUNNING: telemetry received within TELEMETRY_TIMEOUT_SECONDS
+    - STOPPED: no telemetry received within TELEMETRY_TIMEOUT_SECONDS or never received
     """
     
     __tablename__ = "devices"
@@ -40,11 +53,21 @@ class Device(Base):
     model: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     location: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     
-    # Device status
-    status: Mapped[DeviceStatus] = mapped_column(
+    # Legacy status field - DEPRECATED
+    # This field is kept for backward compatibility only.
+    # Do NOT use for runtime display - use get_runtime_status() instead.
+    legacy_status: Mapped[str] = mapped_column(
         String(50),
-        default=DeviceStatus.ACTIVE,
+        default="active",
         nullable=False,
+        index=True
+    )
+    
+    # Last seen timestamp - tracks when telemetry was last received
+    # This is the source of truth for runtime status
+    last_seen_timestamp: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
         index=True
     )
     
@@ -74,7 +97,7 @@ class Device(Base):
         cascade="all, delete-orphan",
         lazy="selectin"
     )
-    
+
     health_configs: Mapped[list["ParameterHealthConfig"]] = relationship(
         "ParameterHealthConfig",
         back_populates="device",
@@ -85,9 +108,62 @@ class Device(Base):
     def __repr__(self) -> str:
         return f"<Device(device_id={self.device_id}, name={self.device_name}, type={self.device_type})>"
     
-    def is_active(self) -> bool:
-        """Check if device is in active status."""
-        return self.status == DeviceStatus.ACTIVE and self.deleted_at is None
+    @property
+    def status(self) -> str:
+        """Legacy status property for backward compatibility.
+        
+        DEPRECATED: Use get_runtime_status() instead.
+        """
+        return self.legacy_status
+    
+    @property
+    def runtime_status(self) -> str:
+        """Computed runtime status property for API responses.
+        
+        This is a computed property that returns the runtime status
+        based on last_seen_timestamp. It is used by the ORM when
+        serializing to JSON.
+        """
+        return self.get_runtime_status()
+    
+    def get_runtime_status(self) -> str:
+        """Compute runtime status based on telemetry activity.
+        
+        Returns:
+            'running' - if telemetry received within TELEMETRY_TIMEOUT_SECONDS
+            'stopped' - if no telemetry received within TELEMETRY_TIMEOUT_SECONDS or never received
+        """
+        if self.last_seen_timestamp is None:
+            return RuntimeStatus.STOPPED.value
+        
+        now = datetime.now(timezone.utc)
+        
+        # Handle naive datetime from database
+        last_seen = self.last_seen_timestamp
+        if last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=timezone.utc)
+        
+        time_diff = (now - last_seen).total_seconds()
+        
+        if time_diff <= TELEMETRY_TIMEOUT_SECONDS:
+            return RuntimeStatus.RUNNING.value
+        else:
+            return RuntimeStatus.STOPPED.value
+    
+    def is_running(self) -> bool:
+        """Check if device is currently running (receiving telemetry)."""
+        return self.get_runtime_status() == RuntimeStatus.RUNNING.value
+    
+    def is_stopped(self) -> bool:
+        """Check if device is currently stopped (not receiving telemetry)."""
+        return self.get_runtime_status() == RuntimeStatus.STOPPED.value
+    
+    def update_last_seen(self) -> None:
+        """Update last_seen_timestamp to current time.
+        
+        Called when telemetry is received for this device.
+        """
+        self.last_seen_timestamp = datetime.now(timezone.utc)
 
 
 class DeviceShift(Base):

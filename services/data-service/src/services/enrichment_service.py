@@ -140,15 +140,19 @@ class EnrichmentService:
                 device_data = data
 
             # ---- FIX: map device-service fields to DeviceMetadata ----
+            # Note: device-service now returns legacy_status instead of status
+            # Use legacy_status for backward compatibility, or runtime_status for dynamic status
             metadata = DeviceMetadata(
                 id=device_data["device_id"],
                 name=device_data["device_name"],
                 type=device_data["device_type"],
                 location=device_data.get("location"),
-                status=device_data["status"],
+                status=device_data.get("legacy_status", "active"),
                 metadata={
                     "manufacturer": device_data.get("manufacturer"),
                     "model": device_data.get("model"),
+                    "runtime_status": device_data.get("runtime_status"),
+                    "last_seen_timestamp": device_data.get("last_seen_timestamp"),
                 },
             )
 

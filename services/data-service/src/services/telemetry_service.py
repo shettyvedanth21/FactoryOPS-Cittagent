@@ -221,17 +221,21 @@ class TelemetryService:
                 )
             
             try:
-                import aiohttp
-                device_service_url = settings.DEVICE_SERVICE_URL or "http://device-service:8000"
-                async with aiohttp.ClientSession() as session:
-                    await session.post(
+                import httpx
+                device_service_url = settings.device_service_url or "http://device-service:8000"
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    # First, update the heartbeat (last_seen_timestamp)
+                    await client.post(
+                        f"{device_service_url}/api/v1/devices/{payload.device_id}/heartbeat"
+                    )
+                    # Then sync properties if there are any new ones
+                    await client.post(
                         f"{device_service_url}/api/v1/devices/{payload.device_id}/properties/sync",
-                        json=dynamic_fields,
-                        timeout=aiohttp.ClientTimeout(total=5)
+                        json=dynamic_fields
                     )
             except Exception as e:
-                logger.debug(
-                    "Failed to sync properties with device service",
+                logger.warning(
+                    "Failed to sync with device service",
                     device_id=payload.device_id,
                     error=str(e),
                 )

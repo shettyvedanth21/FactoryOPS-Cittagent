@@ -105,7 +105,7 @@ export default function RulesPage() {
   useEffect(() => {
     async function updateAvailableProperties() {
       if (formData.scope === "all_devices") {
-        const activeDevices = devices.filter(d => d.status === "active").map(d => d.id);
+        const activeDevices = devices.filter(d => d.runtime_status === "running").map(d => d.id);
         if (activeDevices.length > 0) {
           try {
             const common = await getCommonProperties(activeDevices);

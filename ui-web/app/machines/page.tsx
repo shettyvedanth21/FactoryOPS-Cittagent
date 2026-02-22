@@ -1,33 +1,40 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { getDevices, Device } from "@/lib/deviceApi";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatIST, getRelativeTime } from "@/lib/utils";
 
 export default function MachinesPage() {
   const [machines, setMachines] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  const fetchMachines = useCallback(async () => {
+    setError(null);
+    try {
+      const data = await getDevices();
+      setMachines(data);
+      setLastUpdated(new Date());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch machines");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchMachines = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await getDevices();
-        setMachines(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to fetch machines");
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchMachines();
-  }, []);
+    
+    // Auto-refresh every 10 seconds to keep relative time accurate
+    const interval = setInterval(fetchMachines, 10000);
+    
+    return () => clearInterval(interval);
+  }, [fetchMachines]);
 
   if (loading) {
     return (
@@ -112,7 +119,7 @@ export default function MachinesPage() {
                           {machine.id}
                         </p>
                       </div>
-                      <StatusBadge status={machine.status} />
+                      <StatusBadge status={machine.runtime_status} />
                     </div>
                   </CardHeader>
                   <CardContent className="pt-0">
@@ -129,6 +136,19 @@ export default function MachinesPage() {
                           {machine.location || "—"}
                         </span>
                       </div>
+                      {machine.last_seen_timestamp ? (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Last Seen</span>
+                          <span className="text-slate-900 text-xs">
+                            {formatIST(machine.last_seen_timestamp)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-slate-500">Last Seen</span>
+                          <span className="text-slate-900 text-xs">No data received</span>
+                        </div>
+                      )}
                     </div>
                     <div className="mt-4 pt-4 border-t border-slate-100">
                       <span className="text-sm text-blue-600 font-medium flex items-center gap-1">

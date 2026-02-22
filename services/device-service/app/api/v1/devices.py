@@ -776,14 +776,57 @@ async def sync_device_properties(
     telemetry: dict,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Sync properties from incoming telemetry data."""
+    """Sync properties from incoming telemetry data.
+    
+    This endpoint is called when telemetry data is received for a device.
+    It updates both the device properties and the last_seen_timestamp
+    to track device runtime status.
+    """
     from app.services.device_property import DevicePropertyService
     
-    service = DevicePropertyService(db)
-    properties = await service.sync_from_telemetry(device_id, telemetry)
+    # Sync properties
+    property_service = DevicePropertyService(db)
+    properties = await property_service.sync_from_telemetry(device_id, telemetry)
+    
+    # Update last_seen_timestamp for runtime status tracking
+    from app.services.device import DeviceService
+    device_service = DeviceService(db)
+    await device_service.update_last_seen(device_id)
     
     return {
         "success": True,
         "properties_discovered": len(properties),
         "property_names": [p.property_name for p in properties]
+    }
+
+
+@router.post(
+    "/{device_id}/heartbeat",
+    response_model=dict,
+)
+async def device_heartbeat(
+    device_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update device last_seen_timestamp to mark device as alive.
+    
+    This lightweight endpoint is called periodically by devices or the
+    telemetry service to indicate the device is still active.
+    """
+    from app.services.device import DeviceService
+    
+    device_service = DeviceService(db)
+    device = await device_service.update_last_seen(device_id)
+    
+    if not device:
+        return {
+            "success": False,
+            "error": f"Device {device_id} not found"
+        }
+    
+    return {
+        "success": True,
+        "device_id": device_id,
+        "last_seen_timestamp": device.last_seen_timestamp.isoformat() if device.last_seen_timestamp else None,
+        "runtime_status": device.get_runtime_status()
     }

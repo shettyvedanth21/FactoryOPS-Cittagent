@@ -127,7 +127,8 @@ class DevicePropertyService:
         Returns:
             Dictionary mapping device_id to list of property names
         """
-        device_query = select(Device.device_id).where(Device.status == "active")
+        # Get all devices regardless of status (runtime status is for display, not filtering)
+        device_query = select(Device.device_id)
         
         if tenant_id:
             device_query = device_query.where(Device.tenant_id == tenant_id)
