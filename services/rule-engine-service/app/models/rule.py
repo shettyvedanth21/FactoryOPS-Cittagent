@@ -124,6 +124,10 @@ class Rule(Base):
 
         cooldown_end = self.last_triggered_at + timedelta(minutes=self.cooldown_minutes)
         now = datetime.now(timezone.utc)
+        
+        if self.last_triggered_at.tzinfo is None:
+            cooldown_end = cooldown_end.replace(tzinfo=timezone.utc)
+        
         return now < cooldown_end
 
     def applies_to_device(self, device_id: str) -> bool:

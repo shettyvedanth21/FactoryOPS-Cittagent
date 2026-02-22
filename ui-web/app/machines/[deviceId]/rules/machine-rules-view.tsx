@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { listRules, createRule, updateRuleStatus, deleteRule, Rule, RuleStatus } from "@/lib/ruleApi";
+import { getDeviceFields } from "@/lib/dataApi";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Checkbox } from "@/components/ui/input";
@@ -12,15 +13,8 @@ interface MachineRulesViewProps {
   deviceId: string;
 }
 
-const PROPERTY_OPTIONS = [
-  { value: "power", label: "Power" },
-  { value: "voltage", label: "Voltage" },
-  { value: "temperature", label: "Temperature" },
-  { value: "current", label: "Current" },
-];
-
 const CONDITION_OPTIONS = [
-  { value: ">", label: "Greater than (>" },
+  { value: ">", label: "Greater than (> )" },
   { value: ">=", label: "Greater than or equal (>=)" },
   { value: "<", label: "Less than (<)" },
   { value: "<=", label: "Less than or equal (<=)" },
@@ -28,15 +22,23 @@ const CONDITION_OPTIONS = [
   { value: "!=", label: "Not equal to (!=)" },
 ];
 
+const METRIC_LABELS: Record<string, string> = {
+  power: "Power", voltage: "Voltage", current: "Current", temperature: "Temperature",
+  pressure: "Pressure", humidity: "Humidity", vibration: "Vibration", frequency: "Frequency",
+  power_factor: "Power Factor", speed: "Speed", torque: "Torque", oil_pressure: "Oil Pressure",
+};
+
 export function MachineRulesView({ deviceId }: MachineRulesViewProps) {
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const [availableProperties, setAvailableProperties] = useState<{value: string, label: string}[]>([]);
+  const [propertiesLoading, setPropertiesLoading] = useState(true);
   
   const [formData, setFormData] = useState({
     ruleName: "",
-    property: "power",
+    property: "",
     condition: ">",
     threshold: "",
     enabled: true,
@@ -44,6 +46,37 @@ export function MachineRulesView({ deviceId }: MachineRulesViewProps) {
     whatsapp: false,
     telegram: false,
   });
+
+  // Fetch available properties from device telemetry
+  useEffect(() => {
+    async function fetchProperties() {
+      try {
+        const fields = await getDeviceFields(deviceId);
+        const properties = fields.map(field => ({
+          value: field,
+          label: METRIC_LABELS[field] || field.charAt(0).toUpperCase() + field.slice(1).replace(/_/g, ' ')
+        }));
+        setAvailableProperties(properties);
+        if (fields.length > 0 && !formData.property) {
+          setFormData(prev => ({ ...prev, property: fields[0] }));
+        }
+      } catch (err) {
+        console.error("Failed to fetch device fields:", err);
+        setAvailableProperties([]);
+      } finally {
+        setPropertiesLoading(false);
+      }
+    }
+    
+    fetchProperties();
+  }, [deviceId]);
+
+  // Update property when available properties change
+  useEffect(() => {
+    if (availableProperties.length > 0 && !availableProperties.find(p => p.value === formData.property)) {
+      setFormData(prev => ({ ...prev, property: availableProperties[0].value }));
+    }
+  }, [availableProperties, formData.property]);
 
   useEffect(() => {
     fetchRules();
@@ -156,12 +189,18 @@ export function MachineRulesView({ deviceId }: MachineRulesViewProps) {
                   required
                 />
                 
-                <Select
-                  label="Property"
-                  value={formData.property}
-                  onChange={(e) => setFormData({ ...formData, property: e.target.value })}
-                  options={PROPERTY_OPTIONS}
-                />
+                {propertiesLoading ? (
+                  <div className="text-sm text-slate-500 py-2">Loading properties...</div>
+                ) : availableProperties.length === 0 ? (
+                  <div className="text-sm text-red-500 py-2">No numeric properties found</div>
+                ) : (
+                  <Select
+                    label="Property"
+                    value={formData.property}
+                    onChange={(e) => setFormData({ ...formData, property: e.target.value })}
+                    options={availableProperties}
+                  />
+                )}
                 
                 <Select
                   label="Condition"

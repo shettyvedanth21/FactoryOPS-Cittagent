@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     # Device Service Configuration
     device_service_url: str = Field(
-        default="http://device-service:8080",
+        default="http://device-service:8000",
         description="Device service base URL",
         validation_alias=AliasChoices(
             "device_service_url",

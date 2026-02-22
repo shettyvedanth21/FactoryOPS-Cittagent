@@ -71,7 +71,7 @@ class RuleService:
         tenant_id: Optional[str] = None
     ) -> Optional[Rule]:
 
-        return await self._repository.get_by_id(rule_id, tenant_id)
+        return await self._repository.get_by_id(str(rule_id), tenant_id)
 
     async def list_rules(
         self,
@@ -99,7 +99,7 @@ class RuleService:
         tenant_id: Optional[str] = None,
     ) -> Optional[Rule]:
 
-        rule = await self._repository.get_by_id(rule_id, tenant_id)
+        rule = await self._repository.get_by_id(str(rule_id), tenant_id)
         if not rule:
             logger.warning(
                 "Attempted to update non-existent rule",
@@ -143,7 +143,7 @@ class RuleService:
     ) -> Optional[Rule]:
 
         rule = await self._repository.update_status(
-            rule_id,
+            str(rule_id),
             status.value
         )
 
@@ -165,7 +165,7 @@ class RuleService:
         soft: bool = True,
     ) -> bool:
 
-        rule = await self._repository.get_by_id(rule_id, tenant_id)
+        rule = await self._repository.get_by_id(str(rule_id), tenant_id)
         if not rule:
             return False
 

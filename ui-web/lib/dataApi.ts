@@ -1,4 +1,4 @@
-import { DATA_SERVICE_BASE, RULE_ENGINE_SERVICE_BASE } from "./api";
+import { DATA_SERVICE_BASE, RULE_ENGINE_SERVICE_BASE, DEVICE_SERVICE_BASE } from "./api";
 
 /* ---------- telemetry ---------- */
 
@@ -69,6 +69,28 @@ export async function getDeviceStats(deviceId: string): Promise<DeviceStats> {
   const json = await res.json();
 
   return json.data ?? json;
+}
+
+
+export async function getDeviceFields(deviceId: string): Promise<string[]> {
+  try {
+    const telemetry = await getTelemetry(deviceId, { limit: "1" });
+    if (telemetry.length === 0) return [];
+    
+    const latest = telemetry[0];
+    const fields: string[] = [];
+    
+    for (const [key, value] of Object.entries(latest)) {
+      if (key !== 'timestamp' && key !== 'device_id' && key !== 'schema_version' && 
+          key !== 'enrichment_status' && key !== 'table' && typeof value === 'number') {
+        fields.push(key);
+      }
+    }
+    
+    return fields;
+  } catch {
+    return [];
+  }
 }
 
 
@@ -187,4 +209,49 @@ export async function resolveAlert(alertId: string) {
   }
 
   return res.json();
+}
+
+
+export async function getAllDevicesProperties(): Promise<{
+  devices: Record<string, string[]>;
+  all_properties: string[];
+}> {
+  const res = await fetch(`${DEVICE_SERVICE_BASE}/api/v1/devices/properties`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} - ${text}`);
+  }
+  return res.json();
+}
+
+
+export async function getCommonProperties(deviceIds: string[]): Promise<{
+  properties: string[];
+  device_count: number;
+  message: string;
+}> {
+  const res = await fetch(
+    `${DEVICE_SERVICE_BASE}/api/v1/devices/properties/common`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_ids: deviceIds }),
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} - ${text}`);
+  }
+  return res.json();
+}
+
+
+export async function getDeviceProperties(deviceId: string): Promise<string[]> {
+  const res = await fetch(`${DEVICE_SERVICE_BASE}/api/v1/devices/${deviceId}/properties?numeric_only=true`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} - ${text}`);
+  }
+  const data = await res.json();
+  return data.map((p: { property_name: string }) => p.property_name);
 }

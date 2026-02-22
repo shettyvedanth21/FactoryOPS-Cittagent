@@ -318,24 +318,19 @@ function HealthConfigModal({
     .filter(c => c.is_active && c.parameter_name !== metric)
     .reduce((sum, c) => sum + c.weight, 0) + formData.weight;
   
-  const remainingWeight = 100 - allConfigs
+  const otherWeightsSum = allConfigs
     .filter(c => c.is_active && c.parameter_name !== metric)
     .reduce((sum, c) => sum + c.weight, 0);
   
+  const remainingWeight = 100 - otherWeightsSum;
   const currentWeight = existingConfig?.weight || 0;
   const maxAllowedWeight = remainingWeight + currentWeight;
   const isWeightValid = Math.abs(totalWeight - 100) < 0.01;
   
   const handleWeightChange = (value: number) => {
-    const otherWeights = allConfigs
-      .filter(c => c.is_active && c.parameter_name !== metric)
-      .reduce((sum, c) => sum + c.weight, 0);
-    
-    const maxAllowed = 100 - otherWeights;
-    
-    if (value > maxAllowed) {
-      setFormData({ ...formData, weight: maxAllowed });
-    } else {
+    // Allow any value that's within the allowed range (remaining + current weight)
+    // This allows decreasing weight when editing
+    if (!isNaN(value) && value >= 0 && value <= maxAllowedWeight) {
       setFormData({ ...formData, weight: value });
     }
   };
@@ -384,7 +379,7 @@ function HealthConfigModal({
             <div className="border-t pt-4">
               <label className="block text-sm font-medium mb-1">
                 Weight (%) 
-                <span className="text-xs text-slate-500 font-normal ml-2">(Max: {maxAllowedWeight}%)</span>
+                {existingConfig && <span className="text-xs text-slate-500 font-normal ml-2">(Saved: {currentWeight}%, Max: {maxAllowedWeight}%)</span>}
               </label>
               <input 
                 type="number" 
@@ -392,12 +387,7 @@ function HealthConfigModal({
                 max={maxAllowedWeight}
                 step="1" 
                 value={formData.weight} 
-                onChange={(e) => {
-                  const val = parseFloat(e.target.value);
-                  if (!isNaN(val) && val >= 0 && val <= maxAllowedWeight) {
-                    setFormData({ ...formData, weight: val });
-                  }
-                }} 
+                onChange={(e) => handleWeightChange(parseFloat(e.target.value) || 0)}
                 className="w-full px-3 py-2 border rounded-md" 
               />
               <div className={`text-xs mt-2 p-2 rounded ${isWeightValid ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>

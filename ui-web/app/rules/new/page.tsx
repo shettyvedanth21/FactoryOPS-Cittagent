@@ -1,22 +1,19 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 import { createRule, updateRuleStatus } from "@/lib/ruleApi";
+import { getDeviceFields } from "@/lib/dataApi";
 import { ApiError } from "@/components/ApiError";
-
-const properties = [
-  { value: "temperature", label: "Temperature" },
-  { value: "voltage", label: "Voltage" },
-  { value: "current", label: "Current" },
-  { value: "power", label: "Power" },
-];
 
 const conditions = [
   { value: ">", label: "Greater than (>)" },
   { value: "<", label: "Less than (<)" },
   { value: "=", label: "Equal to (=)" },
+  { value: "!=", label: "Not equal (!=)" },
+  { value: ">=", label: "Greater or equal (>=)" },
+  { value: "<=", label: "Less or equal (<=)" },
 ];
 
 const notificationOptions = [
@@ -25,20 +22,58 @@ const notificationOptions = [
   { value: "telegram", label: "Telegram" },
 ];
 
+const METRIC_LABELS: Record<string, string> = {
+  power: "Power", voltage: "Voltage", current: "Current", temperature: "Temperature",
+  pressure: "Pressure", humidity: "Humidity", vibration: "Vibration", frequency: "Frequency",
+  power_factor: "Power Factor", speed: "Speed", torque: "Torque", oil_pressure: "Oil Pressure",
+};
+
 function CreateRuleContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const deviceIdFromUrl = searchParams.get("device_id") ?? "D1";
 
   const [ruleName, setRuleName] = useState("");
-  const [property, setProperty] = useState("temperature");
+  const [property, setProperty] = useState("");
   const [condition, setCondition] = useState(">");
   const [threshold, setThreshold] = useState("");
   const [notificationChannels, setNotificationChannels] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(true);
-
+  const [availableProperties, setAvailableProperties] = useState<{value: string, label: string}[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [propertiesLoading, setPropertiesLoading] = useState(true);
+
+  // Fetch available properties from device telemetry
+  useEffect(() => {
+    async function fetchProperties() {
+      try {
+        const fields = await getDeviceFields(deviceIdFromUrl);
+        const properties = fields.map(field => ({
+          value: field,
+          label: METRIC_LABELS[field] || field.charAt(0).toUpperCase() + field.slice(1).replace(/_/g, ' ')
+        }));
+        setAvailableProperties(properties);
+        if (fields.length > 0 && !property) {
+          setProperty(fields[0]);
+        }
+      } catch (err) {
+        console.error("Failed to fetch device fields:", err);
+        setAvailableProperties([]);
+      } finally {
+        setPropertiesLoading(false);
+      }
+    }
+    
+    fetchProperties();
+  }, [deviceIdFromUrl]);
+
+  // Update property when device changes
+  useEffect(() => {
+    if (availableProperties.length > 0 && !availableProperties.find(p => p.value === property)) {
+      setProperty(availableProperties[0].value);
+    }
+  }, [availableProperties, property]);
 
   const handleNotificationChange = (channel: string) => {
     setNotificationChannels((prev) =>
@@ -147,22 +182,35 @@ function CreateRuleContent() {
             >
               Property
             </label>
-            <select
-              id="property"
-              value={property}
-              onChange={(e) => setProperty(e.target.value)}
-              className="w-full rounded-md border border-zinc-300 dark:border-zinc-700
-                         bg-white dark:bg-zinc-900
-                         px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100
-                         focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading}
-            >
-              {properties.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+            {propertiesLoading ? (
+              <div className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-500">
+                Loading properties...
+              </div>
+            ) : availableProperties.length === 0 ? (
+              <div className="w-full rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-600">
+                No numeric properties found for this device
+              </div>
+            ) : (
+              <select
+                id="property"
+                value={property}
+                onChange={(e) => setProperty(e.target.value)}
+                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700
+                           bg-white dark:bg-zinc-900
+                           px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100
+                           focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={loading}
+              >
+                {availableProperties.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="text-xs text-zinc-500">
+              Properties are fetched dynamically from device telemetry
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

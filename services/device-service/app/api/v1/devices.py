@@ -38,6 +38,59 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# =====================================================
+# Device Properties Endpoints (Dynamic Schema)
+# Must come BEFORE /{device_id} routes
+# =====================================================
+
+@router.get(
+    "/properties",
+    response_model=dict,
+)
+async def get_all_devices_properties(
+    tenant_id: Optional[str] = Query(None, description="Tenant ID for multi-tenancy"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get properties for all devices."""
+    from app.services.device_property import DevicePropertyService
+    
+    service = DevicePropertyService(db)
+    properties = await service.get_all_devices_properties(tenant_id)
+    
+    all_props = set()
+    for props in properties.values():
+        all_props.update(props)
+    
+    return {
+        "success": True,
+        "devices": properties,
+        "all_properties": sorted(list(all_props))
+    }
+
+
+@router.post(
+    "/properties/common",
+    response_model=dict,
+)
+async def get_common_properties(
+    request: dict,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get common properties across selected devices."""
+    from app.services.device_property import DevicePropertyService
+    
+    device_ids = request.get("device_ids", [])
+    
+    service = DevicePropertyService(db)
+    common = await service.get_common_properties(device_ids)
+    
+    return {
+        "success": True,
+        "properties": common,
+        "device_count": len(device_ids),
+    }
+
+
 @router.get(
     "/{device_id}",
     response_model=DeviceSingleResponse,
@@ -689,3 +742,48 @@ async def calculate_health_score(
     )
     
     return HealthScoreResponse(**result)
+
+
+# =====================================================
+# Device-Specific Property Endpoints
+# =====================================================
+
+@router.get(
+    "/{device_id}/properties",
+    response_model=list,
+)
+async def get_device_properties(
+    device_id: str,
+    numeric_only: bool = Query(True, description="Only return numeric properties"),
+    db: AsyncSession = Depends(get_db),
+) -> list:
+    """Get all properties for a specific device."""
+    from app.services.device_property import DevicePropertyService
+    from app.schemas.device import DevicePropertyResponse
+    
+    service = DevicePropertyService(db)
+    properties = await service.get_device_properties(device_id, numeric_only)
+    
+    return [DevicePropertyResponse.model_validate(p) for p in properties]
+
+
+@router.post(
+    "/{device_id}/properties/sync",
+    response_model=dict,
+)
+async def sync_device_properties(
+    device_id: str,
+    telemetry: dict,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Sync properties from incoming telemetry data."""
+    from app.services.device_property import DevicePropertyService
+    
+    service = DevicePropertyService(db)
+    properties = await service.sync_from_telemetry(device_id, telemetry)
+    
+    return {
+        "success": True,
+        "properties_discovered": len(properties),
+        "property_names": [p.property_name for p in properties]
+    }

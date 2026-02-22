@@ -214,3 +214,48 @@ class ParameterHealthConfig(Base):
     
     def __repr__(self) -> str:
         return f"<ParameterHealthConfig(id={self.id}, device_id={self.device_id}, parameter={self.parameter_name})>"
+
+
+class DeviceProperty(Base):
+    """Dynamic device properties discovered from telemetry.
+    
+    This table stores the properties (fields) discovered from each device's
+    telemetry data. Used for dynamic rule property selection.
+    """
+    
+    __tablename__ = "device_properties"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    device_id: Mapped[str] = mapped_column(
+        String(50), 
+        ForeignKey("devices.device_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True
+    )
+    
+    property_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    
+    data_type: Mapped[str] = mapped_column(String(20), default="float", nullable=False)
+    
+    is_numeric: Mapped[bool] = mapped_column(default=True, nullable=False)
+    
+    discovered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        nullable=False
+    )
+    
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False
+    )
+    
+    __table_args__ = (
+        {"mysql_charset": "utf8mb4", "mysql_collate": "utf8mb4_unicode_ci"},
+    )
+    
+    def __repr__(self) -> str:
+        return f"<DeviceProperty(device_id={self.device_id}, property={self.property_name})>"

@@ -219,6 +219,22 @@ class TelemetryService:
                     device_id=payload.device_id,
                     error=str(e),
                 )
+            
+            try:
+                import aiohttp
+                device_service_url = settings.DEVICE_SERVICE_URL or "http://device-service:8000"
+                async with aiohttp.ClientSession() as session:
+                    await session.post(
+                        f"{device_service_url}/api/v1/devices/{payload.device_id}/properties/sync",
+                        json=dynamic_fields,
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    )
+            except Exception as e:
+                logger.debug(
+                    "Failed to sync properties with device service",
+                    device_id=payload.device_id,
+                    error=str(e),
+                )
 
             log_telemetry_processed(
                 logger=logger,

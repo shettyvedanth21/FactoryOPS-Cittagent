@@ -300,3 +300,52 @@ class HealthScoreResponse(BaseModel):
     total_weight_configured: float
     parameters_included: int
     parameters_skipped: int
+
+
+# =====================================================
+# Device Property Schemas (Dynamic Schema Discovery)
+# =====================================================
+
+class DevicePropertyResponse(BaseModel):
+    """Schema for device property response."""
+    
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: int
+    device_id: str
+    property_name: str
+    data_type: str
+    is_numeric: bool
+    discovered_at: datetime
+    last_seen_at: datetime
+
+
+class DevicePropertyListResponse(BaseModel):
+    """Schema for device property list response."""
+    
+    success: bool = True
+    data: list[DevicePropertyResponse]
+    total: int
+
+
+class DevicePropertiesRequest(BaseModel):
+    """Request schema for getting properties for specific devices."""
+    
+    device_ids: list[str] = Field(..., description="List of device IDs to get properties for")
+
+
+class CommonPropertiesResponse(BaseModel):
+    """Response schema for common properties across devices."""
+    
+    success: bool = True
+    properties: list[str] = Field(..., description="List of common property names")
+    device_count: int = Field(..., description="Number of devices considered")
+    message: str
+
+
+class AllDevicesPropertiesResponse(BaseModel):
+    """Response for all devices properties (for dropdown population)."""
+    
+    success: bool = True
+    devices: dict[str, list[str]] = Field(..., description="Device ID to properties mapping")
+    all_properties: list[str] = Field(..., description="All unique properties across devices")

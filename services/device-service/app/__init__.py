@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     
     # Create tables if they don't exist
     from app.database import Base
-    from app.models.device import Device, DeviceShift, ParameterHealthConfig
+    from app.models.device import Device, DeviceShift, ParameterHealthConfig, DeviceProperty
     
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
