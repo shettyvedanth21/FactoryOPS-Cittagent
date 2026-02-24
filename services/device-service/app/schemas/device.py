@@ -13,11 +13,21 @@ class DeviceBase(BaseModel):
     Runtime status is computed dynamically based on telemetry activity.
     """
     
+    model_config = ConfigDict(str_strip_whitespace=True)
+    
     device_name: str = Field(..., min_length=1, max_length=255, description="Human-readable device name")
     device_type: str = Field(..., min_length=1, max_length=100, description="Device type (e.g., bulb, compressor)")
     manufacturer: Optional[str] = Field(None, max_length=255, description="Device manufacturer")
     model: Optional[str] = Field(None, max_length=255, description="Device model")
     location: Optional[str] = Field(None, max_length=500, description="Physical location of device")
+    phase_type: Optional[str] = Field(None, description="Electrical phase type: 'single' or 'three'")
+    
+    @model_validator(mode='after')
+    def validate_phase_type(self) -> 'DeviceBase':
+        """Validate phase_type field."""
+        if self.phase_type is not None and self.phase_type not in ('single', 'three'):
+            raise ValueError("phase_type must be 'single', 'three', or null")
+        return self
 
 
 class DeviceCreate(DeviceBase):

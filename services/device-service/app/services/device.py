@@ -57,6 +57,7 @@ class DeviceService:
             manufacturer=device_data.manufacturer,
             model=device_data.model,
             location=device_data.location,
+            phase_type=device_data.phase_type,
             legacy_status="active",  # Default legacy status (deprecated)
             metadata_json=device_data.metadata_json,
             # last_seen_timestamp defaults to None, meaning STOPPED initially

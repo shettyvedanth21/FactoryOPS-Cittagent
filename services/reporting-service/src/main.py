@@ -1,168 +1,159 @@
-"""Main application entry point for Reporting Service."""
-
 import asyncio
-import signal
+import logging
 from contextlib import asynccontextmanager
+from sqlalchemy import text
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from src.config import settings
-from src.repositories.analytics_repository import AnalyticsRepository
-from src.repositories.s3_repository import S3Repository
-from src.services.analytics_loader import AnalyticsResultLoader
-from src.services.file_generator import FileGenerator
-from src.services.report_builder import ReportBuilder
-from src.services.s3_loader import S3DatasetLoader
-from src.handlers import health, reports
-from src.utils.logging_config import configure_logging, get_logger
-
-logger = get_logger(__name__)
-
-# Global service instances
-analytics_repo: AnalyticsRepository = None
-s3_repo: S3Repository = None
-report_builder: ReportBuilder = None
+from src.database import engine
+from src.handlers import energy_router, comparison_router, tariffs_router, common_router
+from src.services.influx_reader import influx_reader
+from src.tasks.scheduler import start_scheduler, stop_scheduler
+from src.storage.minio_client import minio_client
 
 
-async def initialize_services():
-    """Initialize all service dependencies."""
-    global analytics_repo, s3_repo, report_builder
-    
-    logger.info("Initializing services...")
-    
-    # Initialize repositories
-    analytics_repo = AnalyticsRepository()
-    await analytics_repo.connect()
-    
-    s3_repo = S3Repository()
-    
-    # Initialize services
-    s3_loader = S3DatasetLoader(s3_repo)
-    analytics_loader = AnalyticsResultLoader(analytics_repo)
-    file_generator = FileGenerator()
-    
-    # Initialize report builder
-    report_builder = ReportBuilder(
-        s3_loader=s3_loader,
-        analytics_loader=analytics_loader,
-        file_generator=file_generator,
-        s3_repository=s3_repo
-    )
-    
-    # Set handlers' dependencies
-    health.set_analytics_repository(analytics_repo)
-    reports.set_report_builder(report_builder)
-    
-    logger.info("Services initialized successfully")
-
-
-async def shutdown_services():
-    """Gracefully shutdown all services."""
-    logger.info("Shutting down services...")
-    
-    if analytics_repo:
-        await analytics_repo.disconnect()
-    
-    logger.info("Services shutdown complete")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan manager for startup/shutdown events."""
-    # Startup
-    configure_logging()
-    await initialize_services()
+    logger.info("Starting up reporting-service...")
+    
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        logger.info("Database connection verified")
+    except Exception as e:
+        logger.error(f"Database connection failed: {e}")
+        raise
+    
+    try:
+        influx_reader.client.ping()
+        logger.info("InfluxDB connection verified")
+    except Exception as e:
+        logger.error(f"InfluxDB connection failed: {e}")
+    
+    try:
+        minio_client.ensure_bucket_exists()
+        logger.info(f"MinIO bucket '{settings.MINIO_BUCKET}' ready")
+    except Exception as e:
+        logger.error(f"MinIO bucket initialization failed: {e}")
+    
+    try:
+        scheduler = start_scheduler()
+        scheduler.start()
+        logger.info("Scheduler started successfully")
+    except Exception as e:
+        logger.error(f"Scheduler startup failed: {e}")
     
     yield
     
-    # Shutdown
-    await shutdown_services()
+    logger.info("Shutting down reporting-service...")
+    stop_scheduler()
+    influx_reader.close()
+    await engine.dispose()
 
 
-def create_app() -> FastAPI:
-    """Create and configure FastAPI application.
+app = FastAPI(
+    title="Energy Reporting Service",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    error_messages = []
+    for error in exc.errors():
+        if "Input tag" in str(error.get("msg", "")):
+            continue
+        loc = ".".join(str(l) for l in error.get("loc", []))
+        msg = error.get("msg", "")
+        error_messages.append(f"{loc}: {msg}")
     
-    Returns:
-        Configured FastAPI application
-    """
-    app = FastAPI(
-        title="Reporting Service",
-        description="Energy Intelligence & Analytics Platform - Report Generation Service",
-        version=settings.service_version,
-        docs_url="/docs" if settings.environment != "production" else None,
-        redoc_url="/redoc" if settings.environment != "production" else None,
-        lifespan=lifespan
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": "INVALID_DATE_RANGE",
+            "message": "Reports allowed between 1 and 90 days within 1-year retention."
+        }
     )
-    
-    # CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # Configure appropriately for production
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    
-    # Include routers
-    app.include_router(health.router)
-    app.include_router(reports.router)
-    
-    return app
 
 
-app = create_app()
-
-
-@app.get("/")
-async def root():
-    """Root endpoint with service information."""
-    return {
-        "service": settings.service_name,
-        "version": settings.service_version,
-        "status": "running",
-        "docs": "/docs"
-    }
-
-
-async def graceful_shutdown(sig):
-    """Handle graceful shutdown signals."""
-    logger.info(f"Received signal {sig.name}, initiating graceful shutdown...")
-    await shutdown_services()
-    asyncio.get_event_loop().stop()
-
-
-def setup_signal_handlers():
-    """Setup signal handlers for graceful shutdown."""
-    loop = asyncio.get_event_loop()
-    
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(
-            sig,
-            lambda s=sig: asyncio.create_task(graceful_shutdown(s))
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # If detail is a dict (our structured error), return it as-is
+    if isinstance(exc.detail, dict):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=exc.detail
         )
+    # Otherwise, wrap it
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": "HTTP_ERROR",
+            "message": str(exc.detail)
+        }
+    )
 
 
-if __name__ == "__main__":
-    import uvicorn
+class HealthResponse(BaseModel):
+    status: str
+
+
+class ReadyResponse(BaseModel):
+    status: str
+    db: str
+    influx: str
+    minio: str
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health():
+    return HealthResponse(status="healthy")
+
+
+@app.get("/ready", response_model=ReadyResponse)
+async def ready():
+    db_status = "connected"
+    influx_status = "connected"
+    minio_status = "connected"
     
-    # Configure logging
-    configure_logging()
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception:
+        db_status = "disconnected"
     
-    # Setup signal handlers
-    setup_signal_handlers()
+    try:
+        influx_reader.client.ping()
+    except Exception:
+        influx_status = "disconnected"
     
-    logger.info(
-        f"Starting {settings.service_name} v{settings.service_version}",
-        host=settings.host,
-        port=settings.port,
-        environment=settings.environment
+    return ReadyResponse(
+        status="ready",
+        db=db_status,
+        influx=influx_status,
+        minio=minio_status
     )
-    
-    uvicorn.run(
-        "src.main:app",
-        host=settings.host,
-        port=settings.port,
-        log_level=settings.log_level.lower(),
-        reload=settings.environment == "development"
-    )
+
+
+app.include_router(energy_router, prefix="/api/reports/energy", tags=["Energy Reports"])
+app.include_router(comparison_router, prefix="/api/reports/energy/comparison", tags=["Comparison Reports"])
+app.include_router(tariffs_router, prefix="/api/reports/tariffs", tags=["Tariffs"])
+app.include_router(common_router, prefix="/api/reports", tags=["Reports"])

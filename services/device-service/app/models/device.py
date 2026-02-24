@@ -27,6 +27,17 @@ class RuntimeStatus(str, Enum):
     STOPPED = "stopped"
 
 
+class PhaseType(str, Enum):
+    """Electrical phase type for devices.
+    
+    Used for energy reporting to distinguish between:
+    - single: Single-phase equipment
+    - three: Three-phase equipment
+    """
+    SINGLE = "single"
+    THREE = "three"
+
+
 class Device(Base):
     """Device model representing IoT devices in the system.
     
@@ -52,6 +63,14 @@ class Device(Base):
     manufacturer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     model: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     location: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # Phase type - electrical configuration for energy reporting
+    # This is static metadata, not telemetry-derived
+    phase_type: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        index=True
+    )
     
     # Legacy status field - DEPRECATED
     # This field is kept for backward compatibility only.
