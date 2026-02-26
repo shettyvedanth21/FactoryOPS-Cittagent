@@ -34,8 +34,15 @@ class Settings(BaseSettings):
     NOTIFICATION_COOLDOWN_MINUTES: int = 15
     MAX_RULES_PER_DEVICE: int = 100
     
-    # Notification Adapters (for future configuration)
-    EMAIL_ENABLED: bool = False
+    # Notification Adapters
+    EMAIL_ENABLED: bool = True
+    EMAIL_SMTP_HOST: str = "smtp.gmail.com"
+    EMAIL_SMTP_PORT: int = 587
+    EMAIL_SMTP_USERNAME: str = ""
+    EMAIL_SMTP_PASSWORD: str = ""
+    EMAIL_FROM_ADDRESS: str = "alerts@energy-platform.com"
+    EMAIL_TO_ADDRESS: str = ""
+    
     WHATSAPP_ENABLED: bool = False
     TELEGRAM_ENABLED: bool = False
     

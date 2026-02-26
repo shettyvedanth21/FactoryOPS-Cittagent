@@ -8,21 +8,6 @@ class DateRangeValidator(BaseModel):
     start_date: date
     end_date: date
 
-    @model_validator(mode="after")
-    def validate_dates(self):
-        today = date.today()
-        min_allowed = today - timedelta(days=365)
-        if self.start_date < min_allowed:
-            raise ValueError("INVALID_DATE_RANGE: start_date exceeds 1-year retention window")
-        if self.end_date > today:
-            raise ValueError("INVALID_DATE_RANGE: end_date cannot be in the future")
-        if self.end_date <= self.start_date:
-            raise ValueError("INVALID_DATE_RANGE: end_date must be after start_date")
-        span = (self.end_date - self.start_date).days
-        if span > 90:
-            raise ValueError("INVALID_DATE_RANGE: maximum range is 90 days")
-        return self
-
 
 class ConsumptionReportRequest(DateRangeValidator):
     device_ids: list[str]
@@ -52,21 +37,16 @@ class ComparisonReportRequest(BaseModel):
                 raise ValueError("machine_a_id and machine_b_id must be different")
             if not self.start_date or not self.end_date:
                 raise ValueError("start_date and end_date required for machine comparison")
-            dr = DateRangeValidator(start_date=self.start_date, end_date=self.end_date)
-            dr.validate_dates()
         elif self.comparison_type == "period_vs_period":
             if not self.device_id:
                 raise ValueError("device_id required for period comparison")
             if not all([self.period_a_start, self.period_a_end, self.period_b_start, self.period_b_end]):
                 raise ValueError("period_a_start, period_a_end, period_b_start, period_b_end required")
-            dr_a = DateRangeValidator(start_date=self.period_a_start, end_date=self.period_a_end)
-            dr_a.validate_dates()
-            dr_b = DateRangeValidator(start_date=self.period_b_start, end_date=self.period_b_end)
-            dr_b.validate_dates()
-            a_len = (self.period_a_end - self.period_a_start).days
-            b_len = (self.period_b_end - self.period_b_start).days
-            if a_len != b_len:
-                raise ValueError(f"Periods must be equal length. A={a_len} days, B={b_len} days.")
+            if self.period_a_start and self.period_a_end and self.period_b_start and self.period_b_end:
+                a_len = (self.period_a_end - self.period_a_start).days
+                b_len = (self.period_b_end - self.period_b_start).days
+                if a_len != b_len:
+                    raise ValueError(f"Periods must be equal length. A={a_len} days, B={b_len} days.")
         return self
 
 

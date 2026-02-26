@@ -10,7 +10,7 @@ def calculate_reactive(
         return {
             "success": False,
             "error_code": "INSUFFICIENT_REACTIVE_DATA",
-            "message": "reactive_power or (power + power_factor) required."
+            "error_message": "reactive_power or (power + power_factor) required."
         }
     
     first_row = rows[0]
@@ -40,11 +40,13 @@ def calculate_reactive(
         
         return {
             "success": True,
-            "total_kvarh": round(total_kvarh, 4),
-            "avg_power_factor": round(sum(pfs) / len(pfs), 4) if pfs else 0,
-            "min_power_factor": round(min(pfs), 4) if pfs else 0,
-            "pf_below_threshold_pct": round(pf_below_threshold_pct, 2),
-            "pf_distribution": pf_distribution
+            "data": {
+                "total_kvarh": round(total_kvarh, 4),
+                "avg_power_factor": round(sum(pfs) / len(pfs), 4) if pfs else 0,
+                "min_power_factor": round(min(pfs), 4) if pfs else 0,
+                "pf_below_threshold_pct": round(pf_below_threshold_pct, 2),
+                "pf_distribution": pf_distribution
+            }
         }
     
     if "power" in first_row and "power_factor" in first_row:
@@ -62,7 +64,7 @@ def calculate_reactive(
             return {
                 "success": False,
                 "error_code": "INSUFFICIENT_REACTIVE_DATA",
-                "message": "reactive_power or (power + power_factor) required."
+                "error_message": "reactive_power or (power + power_factor) required."
             }
         
         energy_varh = 0.0
@@ -88,15 +90,17 @@ def calculate_reactive(
         
         return {
             "success": True,
-            "total_kvarh": round(total_kvarh, 4),
-            "avg_power_factor": round(sum(pfs) / len(pfs), 4) if pfs else 0,
-            "min_power_factor": round(min(pfs), 4) if pfs else 0,
-            "pf_below_threshold_pct": round(pf_below_threshold_pct, 2),
-            "pf_distribution": pf_distribution
+            "data": {
+                "total_kvarh": round(total_kvarh, 4),
+                "avg_power_factor": round(sum(pfs) / len(pfs), 4) if pfs else 0,
+                "min_power_factor": round(min(pfs), 4) if pfs else 0,
+                "pf_below_threshold_pct": round(pf_below_threshold_pct, 2),
+                "pf_distribution": pf_distribution
+            }
         }
     
     return {
         "success": False,
         "error_code": "INSUFFICIENT_REACTIVE_DATA",
-        "message": "reactive_power or (power + power_factor) required."
+        "error_message": "reactive_power or (power + power_factor) required."
     }

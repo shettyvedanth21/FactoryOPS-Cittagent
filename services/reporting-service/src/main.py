@@ -20,6 +20,15 @@ from src.storage.minio_client import minio_client
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+logger.info("="*60)
+logger.info("REPORTING SERVICE VERSION: DIAGNOSTIC_BUILD_03")
+logger.info("="*60)
+
+app = FastAPI(
+    title="Reporting Service",
+    redirect_slashes=False
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -85,11 +94,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         msg = error.get("msg", "")
         error_messages.append(f"{loc}: {msg}")
     
+    error_summary = "; ".join(error_messages) if error_messages else "Validation error"
+    
     return JSONResponse(
         status_code=400,
         content={
-            "error": "INVALID_DATE_RANGE",
-            "message": "Reports allowed between 1 and 90 days within 1-year retention."
+            "error": "VALIDATION_ERROR",
+            "message": error_summary,
+            "details": error_messages
         }
     )
 

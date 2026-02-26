@@ -1,29 +1,65 @@
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_demand(
-    rows: list[dict],
+    power_series: List[dict],
     window_minutes: int = 15
 ) -> dict:
-    if not rows:
+    if not power_series:
         return {
             "success": False,
             "error_code": "INSUFFICIENT_DEMAND_DATA",
-            "message": "Not enough data for demand window calculation."
+            "error_message": "No power data available for demand calculation."
         }
     
-    sorted_rows = sorted(rows, key=lambda r: r["timestamp"])
+    def parse_timestamp(ts):
+        if isinstance(ts, datetime):
+            return ts
+        if isinstance(ts, str):
+            try:
+                return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            except Exception:
+                return None
+        return None
     
-    if "power" not in sorted_rows[0]:
+    logger.info(f"calculate_demand: received {len(power_series)} power_series items")
+    
+    sorted_rows = sorted(power_series, key=lambda r: r.get("timestamp"))
+    
+    for r in sorted_rows:
+        if 'timestamp' in r:
+            parsed = parse_timestamp(r['timestamp'])
+            if parsed:
+                r['_parsed_timestamp'] = parsed
+    
+    valid_rows = [r for r in sorted_rows if r.get('_parsed_timestamp')]
+    logger.info(f"calculate_demand: {len(valid_rows)} valid rows after parsing timestamps")
+    logger.info(f"First timestamp: {valid_rows[0].get('_parsed_timestamp') if valid_rows else 'N/A'}")
+    logger.info(f"Last timestamp: {valid_rows[-1].get('_parsed_timestamp') if valid_rows else 'N/A'}")
+    logger.info(f"Duration: {(valid_rows[-1].get('_parsed_timestamp') - valid_rows[0].get('_parsed_timestamp')).total_seconds() / 3600 if valid_rows else 'N/A'} hours")
+    
+    sorted_rows = valid_rows
+    
+    if not sorted_rows or "power_w" not in sorted_rows[0]:
         return {
             "success": False,
             "error_code": "INSUFFICIENT_DEMAND_DATA",
-            "message": "Power field required for demand calculation."
+            "error_message": "Power series must contain power_w field for demand calculation."
         }
     
-    start_time = sorted_rows[0]["timestamp"]
-    end_time = sorted_rows[-1]["timestamp"]
+    start_time = sorted_rows[0].get("_parsed_timestamp")
+    end_time = sorted_rows[-1].get("_parsed_timestamp")
+    
+    if not start_time or not end_time:
+        return {
+            "success": False,
+            "error_code": "INSUFFICIENT_DEMAND_DATA",
+            "error_message": "Power series must have valid timestamps."
+        }
     
     window_seconds = window_minutes * 60
     window_averages = []
@@ -35,27 +71,26 @@ def calculate_demand(
         
         window_rows = [
             r for r in sorted_rows
-            if current_window_start <= r["timestamp"] < current_window_end
+            if current_window_start <= r.get("_parsed_timestamp") < current_window_end
         ]
         
-        if len(window_rows) >= 2:
-            window_energy_wh = 0.0
-            for i in range(len(window_rows) - 1):
-                delta_seconds = (window_rows[i + 1]["timestamp"] - window_rows[i]["timestamp"]).total_seconds()
-                avg_power_w = (window_rows[i]["power"] + window_rows[i + 1]["power"]) / 2
-                window_energy_wh += avg_power_w * delta_seconds / 3600
-            
-            avg_kw = window_energy_wh / (window_minutes / 60)
+        # With aggregated data, we may only have 1 point per window - use that single point as the average
+        if len(window_rows) >= 1:
+            # Use average power in the window as the demand
+            avg_power_w = sum(r.get("power_w", 0) or 0 for r in window_rows) / len(window_rows)
+            avg_kw = avg_power_w / 1000
             window_averages.append(avg_kw)
             window_starts.append(current_window_start)
         
         current_window_start = current_window_end
     
+    logger.info(f"calculate_demand: {len(window_averages)} windows with >= 2 data points")
+    
     if not window_averages:
         return {
             "success": False,
             "error_code": "INSUFFICIENT_DEMAND_DATA",
-            "message": "Not enough data for demand window calculation."
+            "error_message": "Not enough data points for demand window calculation."
         }
     
     peak_index = window_averages.index(max(window_averages))
@@ -79,9 +114,11 @@ def calculate_demand(
     
     return {
         "success": True,
-        "peak_demand_kw": round(peak_demand_kw, 2),
-        "peak_demand_timestamp": peak_demand_timestamp.isoformat(),
-        "demand_window_minutes": window_minutes,
-        "top_5_windows": top_5_windows,
-        "all_window_averages": [round(wa, 2) for wa in window_averages]
+        "data": {
+            "peak_demand_kw": round(peak_demand_kw, 2),
+            "peak_demand_timestamp": peak_demand_timestamp.isoformat(),
+            "demand_window_minutes": window_minutes,
+            "top_5_windows": top_5_windows,
+            "all_window_averages": [round(wa, 2) for wa in window_averages]
+        }
     }

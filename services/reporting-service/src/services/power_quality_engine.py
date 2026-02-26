@@ -7,7 +7,7 @@ def calculate_power_quality(rows: list[dict]) -> dict:
         return {
             "success": False,
             "error_code": "NO_POWER_QUALITY_DATA",
-            "message": "No quality metrics in telemetry."
+            "error_message": "No quality metrics in telemetry."
         }
     
     result = {}
@@ -58,10 +58,10 @@ def calculate_power_quality(rows: list[dict]) -> dict:
         return {
             "success": False,
             "error_code": "NO_POWER_QUALITY_DATA",
-            "message": "No quality metrics in telemetry."
+            "error_message": "No quality metrics in telemetry."
         }
     
     return {
         "success": True,
-        **result
+        "data": result
     }

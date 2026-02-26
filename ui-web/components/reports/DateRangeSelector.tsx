@@ -23,9 +23,9 @@ export function DateRangeSelector({ onRangeChange, disabled }: DateRangeSelector
   const formatDisplay = (d: Date): string =>
     d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
-  const presets = [
-    { label: "Today", days: 0 },
-    { label: "Yesterday", days: 1 },
+  const presets: { label: string; days: number; offset?: number }[] = [
+    { label: "Today", days: 1 },
+    { label: "Yesterday", days: 2, offset: 1 },
     { label: "Last 7 days", days: 7 },
     { label: "Last 30 days", days: 30 },
     { label: "Last 90 days", days: 90 },
@@ -37,32 +37,51 @@ export function DateRangeSelector({ onRangeChange, disabled }: DateRangeSelector
     months.push(d);
   }
 
-  const handlePresetClick = (days: number) => {
-    const end = new Date(today);
-    const start = new Date(today);
-    start.setDate(start.getDate() - days);
-    setStartDate(formatDate(start));
-    setEndDate(formatDate(end));
-    onRangeChange(formatDate(start), formatDate(end));
+  const handlePresetClick = (days: number, offset: number = 0) => {
+    const end = new Date(Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate() - offset
+    ));
+    const start = new Date(Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate() - days
+    ));
+    const startStr = start.toISOString().split("T")[0];
+    const endStr = end.toISOString().split("T")[0];
+    setStartDate(startStr);
+    setEndDate(endStr);
+    onRangeChange(startStr, endStr);
   };
 
   const handleMonthClick = (monthDate: Date) => {
-    const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-    const end = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
-    setStartDate(formatDate(start));
-    setEndDate(formatDate(end));
+    const start = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1));
+    const end = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 0));
+    const startStr = start.toISOString().split("T")[0];
+    const endStr = end.toISOString().split("T")[0];
+    setStartDate(startStr);
+    setEndDate(endStr);
     setSelectedMonth(formatDate(monthDate));
-    onRangeChange(formatDate(start), formatDate(end));
+    onRangeChange(startStr, endStr);
   };
 
   const handleCustomStartChange = (value: string) => {
     setStartDate(value);
-    const start = new Date(value);
-    const end = new Date(value);
-    end.setDate(end.getDate() + 90);
-    if (end > yesterday) end.setDate(yesterday.getDate());
-    setEndDate(formatDate(end));
-    onRangeChange(value, formatDate(end));
+    const start = new Date(value + "T00:00:00Z");
+    let end = new Date(value + "T00:00:00Z");
+    end.setUTCDate(end.getUTCDate() + 90);
+    const yesterdayTime = new Date(Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate() - 1
+    ));
+    if (end > yesterdayTime) {
+      end = yesterdayTime;
+    }
+    const endStr = end.toISOString().split("T")[0];
+    setEndDate(endStr);
+    onRangeChange(value, endStr);
   };
 
   const handleCustomEndChange = (value: string) => {
@@ -70,14 +89,14 @@ export function DateRangeSelector({ onRangeChange, disabled }: DateRangeSelector
     onRangeChange(startDate, value);
   };
 
-  const minDate = formatDate(new Date(today.getTime() - 365 * 24 * 60 * 60 * 1000));
+  const minDate = formatDate(new Date(Date.UTC(today.getUTCFullYear() - 1, today.getUTCMonth(), today.getUTCDate())));
   const maxDate = formatDate(yesterday);
-  const minEndDate = startDate ? formatDate(new Date(new Date(startDate).getTime() + 24 * 60 * 60 * 1000)) : "";
+  const minEndDate = startDate ? formatDate(new Date(new Date(startDate + "T00:00:00Z").getTime() + 24 * 60 * 60 * 1000)) : "";
   const maxEndDate = startDate
     ? formatDate(
         new Date(
           Math.min(
-            new Date(startDate).getTime() + 90 * 24 * 60 * 60 * 1000,
+            new Date(startDate + "T00:00:00Z").getTime() + 90 * 24 * 60 * 60 * 1000,
             yesterday.getTime()
           )
         )
@@ -123,7 +142,7 @@ export function DateRangeSelector({ onRangeChange, disabled }: DateRangeSelector
             {presets.map((p) => (
               <button
                 key={p.label}
-                onClick={() => handlePresetClick(p.days)}
+                onClick={() => handlePresetClick(p.days, p.offset || 0)}
                 disabled={disabled}
                 className="px-3 py-1.5 text-sm bg-white border rounded-md hover:bg-blue-50 hover:border-blue-300 transition-colors"
               >

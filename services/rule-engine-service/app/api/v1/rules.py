@@ -19,10 +19,11 @@ from app.schemas.rule import (
     RuleDeleteResponse,
     ErrorResponse,
     RuleStatus,
-    TelemetryPayload,   # ✅ CHANGED (was TelemetryIn)
+    TelemetryPayload,
 )
 from app.services.rule import RuleService
 from app.services.evaluator import RuleEvaluator
+from app.notifications.adapter import notification_adapter
 import logging
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,65 @@ async def create_rule(
     
     try:
         rule = await service.create_rule(rule_data)
+        
+        await db.commit()
+        await db.refresh(rule)
+        
+        if rule.notification_channels and "email" in rule.notification_channels:
+            try:
+                device_ids = rule.device_ids or []
+                
+                device_names_map = {}
+                if device_ids:
+                    try:
+                        import httpx
+                        async with httpx.AsyncClient(timeout=5.0) as client:
+                            for dev_id in device_ids:
+                                try:
+                                    resp = await client.get(f"http://device-service:8000/api/v1/devices/{dev_id}")
+                                    if resp.status_code == 200:
+                                        dev_data = resp.json()
+                                        if isinstance(dev_data, dict) and "data" in dev_data:
+                                            dev_data = dev_data["data"]
+                                        device_names_map[dev_id] = dev_data.get("device_name", dev_id)
+                                    else:
+                                        device_names_map[dev_id] = dev_id
+                                except:
+                                    device_names_map[dev_id] = dev_id
+                    except Exception as e:
+                        logger.warning("Failed to fetch device names", extra={"error": str(e)})
+                
+                devices_list = [f"{device_names_map.get(did, did)} ({did})" for did in device_ids]
+                devices_display = ", ".join(devices_list) if devices_list else "N/A"
+                
+                status_value = rule.status.value if hasattr(rule.status, 'value') else str(rule.status)
+                
+                await notification_adapter.send_alert(
+                    channel="email",
+                    subject=f"Rule Created: {rule.rule_name}",
+                    message=f"Your rule '{rule.rule_name}' has been successfully created and is now {status_value}.",
+                    rule=rule,
+                    device_id=", ".join(device_ids) if device_ids else "N/A",
+                    device_names=devices_display,
+                    alert_type="rule_created"
+                )
+                logger.info(
+                    "Rule creation notification sent",
+                    extra={
+                        "rule_id": str(rule.rule_id),
+                        "rule_name": rule.rule_name,
+                        "channels": rule.notification_channels,
+                    }
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to send rule creation notification",
+                    extra={
+                        "rule_id": str(rule.rule_id),
+                        "error": str(e)
+                    }
+                )
+        
         return RuleSingleResponse(data=rule)
     except ValueError as e:
         logger.warning(

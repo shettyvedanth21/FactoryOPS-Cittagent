@@ -57,7 +57,9 @@ export async function submitConsumptionReport(
     body: JSON.stringify(params),
   });
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    const errorData = await res.json().catch(() => ({}));
+    const errorMsg = errorData.detail || errorData.message || errorData.error || `HTTP ${res.status}`;
+    throw new Error(errorMsg);
   }
   return res.json();
 }
@@ -71,7 +73,9 @@ export async function submitComparisonReport(
     body: JSON.stringify(params),
   });
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    const errorData = await res.json().catch(() => ({}));
+    const errorMsg = errorData.detail || errorData.message || errorData.error || `HTTP ${res.status}`;
+    throw new Error(errorMsg);
   }
   return res.json();
 }

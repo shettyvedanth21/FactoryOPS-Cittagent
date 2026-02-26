@@ -1,15 +1,29 @@
-from src.pdf.templates.base_styles import get_base_styles
-
-
 def get_comparison_report_template():
-    base = get_base_styles()
-    return f"""
-<!DOCTYPE html>
+    base_styles = """
+    <style>
+        @page { size: A4; margin: 2cm; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #333; }
+        .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #1E3A5F; padding-bottom: 10px; }
+        .header h1 { color: #1E3A5F; margin: 0 0 10px 0; }
+        .section { margin-bottom: 25px; }
+        .section h2 { color: #2E7D32; border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f5f5f5; }
+        .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #999; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 15px 0; }
+        .kpi-box { border: 1px solid #ddd; padding: 15px; text-align: center; border-radius: 8px; }
+        .kpi-value { font-size: 24px; font-weight: bold; color: #1E3A5F; }
+        .kpi-label { font-size: 12px; color: #666; }
+    </style>
+    """
+    
+    return f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
     <title>Energy Comparison Report</title>
-    {base}
+    {base_styles}
 </head>
 <body>
     <div class="header">
@@ -36,8 +50,8 @@ def get_comparison_report_template():
                 <td>{{ comparison.energy_comparison.device_b_kwh }}</td>
             </tr>
         </table>
-        <p>Difference: {{ comparison.energy_comparison.difference_kwh }} kWh ({{ comparison.energy_comparison.difference_percent }}%)</p>
-        <p>Higher Consumer: {{ comparison.energy_comparison.higher_consumer }}</p>
+        <p><strong>Difference:</strong> {{ comparison.energy_comparison.difference_kwh }} kWh ({{ comparison.energy_comparison.difference_percent }}%)</p>
+        <p><strong>Higher Consumer:</strong> {{ comparison.energy_comparison.higher_consumer }}</p>
     </div>
     {% endif %}
     
@@ -58,8 +72,26 @@ def get_comparison_report_template():
                 <td>{{ comparison.demand_comparison.device_b_peak_kw }}</td>
             </tr>
         </table>
-        <p>Difference: {{ comparison.demand_comparison.difference_kw }} kW ({{ comparison.demand_comparison.difference_percent }}%)</p>
-        <p>Higher Demand: {{ comparison.demand_comparison.higher_demand }}</p>
+        <p><strong>Difference:</strong> {{ comparison.demand_comparison.difference_kw }} kW ({{ comparison.demand_comparison.difference_percent }}%)</p>
+        <p><strong>Higher Demand:</strong> {{ comparison.demand_comparison.higher_demand }}</p>
+    </div>
+    {% endif %}
+    
+    {% if comparison.insights %}
+    <div class="section">
+        <h2>Key Insights</h2>
+        <ul>
+        {% for insight in insights %}
+            <li>{{ insight }}</li>
+        {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+    
+    {% if winner %}
+    <div class="section">
+        <h2>Winner</h2>
+        <p><strong>{{ winner }}</strong> is the more efficient choice based on the analysis.</p>
     </div>
     {% endif %}
     

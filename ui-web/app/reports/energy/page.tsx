@@ -16,19 +16,28 @@ type ViewState = "empty" | "processing" | "completed" | "failed";
 
 interface ReportResult {
   energy: {
-    total_kwh: number;
-    avg_power_w: number;
-    peak_power_w: number;
-    min_power_w: number;
+    data: {
+      total_kwh: number;
+      avg_power_w: number;
+      peak_power_w: number;
+      min_power_w: number;
+    };
+    success: boolean;
   };
   demand: {
-    peak_demand_kw: number;
-    peak_demand_timestamp: string;
+    data: {
+      peak_demand_kw: number;
+      peak_demand_timestamp: string;
+    };
+    success: boolean;
   };
   load_factor: {
-    load_factor: number;
-    classification: string;
-    recommendation: string;
+    data: {
+      load_factor: number;
+      classification: string;
+      recommendation: string;
+    };
+    success: boolean;
   };
   cost: {
     total_cost: number;
@@ -235,25 +244,27 @@ export default function EnergyReportPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-blue-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-blue-600">
-                    {result.energy?.total_kwh?.toFixed(1) ?? "N/A"}
+                    {result.energy?.data?.total_kwh?.toFixed(1) ?? "—"}
                   </div>
                   <div className="text-sm text-gray-600">Total kWh</div>
                 </div>
                 <div className="bg-green-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-green-600">
-                    {result.demand?.peak_demand_kw?.toFixed(1) ?? "N/A"}
+                    {result.demand?.data?.peak_demand_kw?.toFixed(1) ?? "—"}
                   </div>
                   <div className="text-sm text-gray-600">Peak kW</div>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-purple-600">
-                    {result.load_factor?.load_factor ? (result.load_factor.load_factor * 100).toFixed(0) + "%" : "N/A"}
+                    {result.load_factor?.data?.load_factor 
+                      ? (result.load_factor.data.load_factor * 100).toFixed(1) + "%" 
+                      : "—"}
                   </div>
                   <div className="text-sm text-gray-600">Load Factor</div>
                 </div>
                 <div className="bg-orange-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-orange-600">
-                    {result.cost ? `${result.cost.currency} ${result.cost.total_cost?.toFixed(0) ?? "N/A"}` : "N/A"}
+                    {result.cost?.currency} {result.cost?.total_cost?.toFixed(0) ?? "0"}
                   </div>
                   <div className="text-sm text-gray-600">Est. Cost</div>
                 </div>

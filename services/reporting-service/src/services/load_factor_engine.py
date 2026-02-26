@@ -10,14 +10,14 @@ def calculate_load_factor(
         return {
             "success": False,
             "error_code": "LOAD_FACTOR_NOT_APPLICABLE",
-            "message": "Peak demand is zero, load factor cannot be computed."
+            "error_message": "Peak demand is zero, load factor cannot be computed."
         }
     
     if duration_hours <= 0:
         return {
             "success": False,
             "error_code": "INVALID_DURATION",
-            "message": "Duration must be greater than zero."
+            "error_message": "Duration must be greater than zero."
         }
     
     avg_load_kw = total_kwh / duration_hours
@@ -35,8 +35,10 @@ def calculate_load_factor(
     
     return {
         "success": True,
-        "avg_load_kw": round(avg_load_kw, 2),
-        "load_factor": round(load_factor, 4),
-        "classification": classification,
-        "recommendation": recommendation
+        "data": {
+            "avg_load_kw": round(avg_load_kw, 2),
+            "load_factor": round(load_factor, 4),
+            "classification": classification,
+            "recommendation": recommendation
+        }
     }

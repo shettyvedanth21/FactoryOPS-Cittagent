@@ -10,10 +10,12 @@ def calculate_comparison(
     device_name_b: str
 ) -> dict:
     result = {}
+    insights = []
+    winner = None
     
-    if "error" not in energy_a and "error" not in energy_b:
-        kwh_a = energy_a.get("total_kwh", 0)
-        kwh_b = energy_b.get("total_kwh", 0)
+    if energy_a.get("success") is not False and energy_b.get("success") is not False:
+        kwh_a = energy_a.get("data", {}).get("total_kwh", 0) if isinstance(energy_a.get("data"), dict) else 0
+        kwh_b = energy_b.get("data", {}).get("total_kwh", 0) if isinstance(energy_b.get("data"), dict) else 0
         diff_kwh = kwh_a - kwh_b
         pct_diff = (diff_kwh / kwh_b * 100) if kwh_b > 0 else 0
         
@@ -24,10 +26,19 @@ def calculate_comparison(
             "difference_percent": round(pct_diff, 2),
             "higher_consumer": device_name_a if diff_kwh > 0 else device_name_b
         }
+        
+        if diff_kwh > 0:
+            insights.append(f"{device_name_a} consumed {abs(diff_kwh):.1f} kWh more than {device_name_b}")
+            winner = device_name_b
+        elif diff_kwh < 0:
+            insights.append(f"{device_name_b} consumed {abs(diff_kwh):.1f} kWh more than {device_name_a}")
+            winner = device_name_a
+        else:
+            insights.append(f"{device_name_a} and {device_name_b} consumed equal energy")
     
-    if "error" not in demand_a and "error" not in demand_b:
-        peak_a = demand_a.get("peak_demand_kw", 0)
-        peak_b = demand_b.get("peak_demand_kw", 0)
+    if demand_a.get("success") is not False and demand_b.get("success") is not False:
+        peak_a = demand_a.get("data", {}).get("peak_demand_kw", 0) if isinstance(demand_a.get("data"), dict) else 0
+        peak_b = demand_b.get("data", {}).get("peak_demand_kw", 0) if isinstance(demand_b.get("data"), dict) else 0
         diff_peak = peak_a - peak_b
         pct_peak_diff = (diff_peak / peak_b * 100) if peak_b > 0 else 0
         
@@ -39,4 +50,18 @@ def calculate_comparison(
             "higher_demand": device_name_a if diff_peak > 0 else device_name_b
         }
     
-    return result
+    if not result:
+        return {
+            "success": False,
+            "error_code": "INSUFFICIENT_COMPARISON_DATA",
+            "error_message": "No valid data for comparison. Both devices must have energy or demand data."
+        }
+    
+    return {
+        "success": True,
+        "data": {
+            "metrics": result,
+            "winner": winner,
+            "insights": insights
+        }
+    }

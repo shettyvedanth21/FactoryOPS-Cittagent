@@ -146,6 +146,13 @@ services:
       - DATABASE_URL=mysql+aiomysql://energy:energy@mysql:3306/energy_rule_db
       - LOG_LEVEL=INFO
       - ENVIRONMENT=development
+      - EMAIL_ENABLED=true
+      - EMAIL_SMTP_HOST=smtp.gmail.com
+      - EMAIL_SMTP_PORT=587
+      - EMAIL_SMTP_USERNAME=Support@cittagent.com
+      - EMAIL_SMTP_PASSWORD=gcoerqbykfrgfvsf
+      - EMAIL_FROM_ADDRESS=Support@cittagent.com
+      - EMAIL_TO_ADDRESS=vedanth.shetty@cittagent.com,manash.ray@cittagent.com
     ports:
       - "8002:8002"
     depends_on:

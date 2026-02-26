@@ -11,8 +11,9 @@ def calculate_cost(
 ) -> dict:
     if tariff is None:
         return {
-            "error": "TARIFF_NOT_CONFIGURED",
-            "message": "No tariff configured for this tenant. Set tariff via POST /api/reports/tariffs"
+            "success": False,
+            "error_code": "TARIFF_NOT_CONFIGURED",
+            "error_message": "No tariff configured for this tenant. Set tariff via POST /api/reports/tariffs"
         }
     
     energy_rate = float(tariff.get("energy_rate_per_kwh", 0))
@@ -37,14 +38,17 @@ def calculate_cost(
     total_cost = energy_cost + demand_cost + reactive_penalty + prorated_fixed
     
     return {
-        "energy_cost": round(energy_cost, 2),
-        "demand_cost": round(demand_cost, 2),
-        "reactive_penalty": round(reactive_penalty, 2),
-        "fixed_charge": round(prorated_fixed, 2),
-        "total_cost": round(total_cost, 2),
-        "currency": currency,
-        "rate_used": {
-            "energy_rate_per_kwh": energy_rate,
-            "demand_charge_per_kw": demand_rate
+        "success": True,
+        "data": {
+            "energy_cost": round(energy_cost, 2),
+            "demand_cost": round(demand_cost, 2),
+            "reactive_penalty": round(reactive_penalty, 2),
+            "fixed_charge": round(prorated_fixed, 2),
+            "total_cost": round(total_cost, 2),
+            "currency": currency,
+            "rate_used": {
+                "energy_rate_per_kwh": energy_rate,
+                "demand_charge_per_kw": demand_rate
+            }
         }
     }

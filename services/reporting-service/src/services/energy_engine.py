@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List
 from collections import defaultdict
 from datetime import datetime
 
@@ -6,17 +6,19 @@ SQRT3 = 1.73205080757
 
 
 def calculate_energy(
-    rows: list[dict],
+    rows: List[dict],
     phase_type: str
 ) -> dict:
     if not rows:
         return {
             "success": False,
             "error_code": "NO_TELEMETRY_DATA",
-            "message": "No telemetry data in selected range."
+            "error_message": "No telemetry data in selected range."
         }
     
     first_row = rows[0]
+    
+    power_series: List[dict] = []
     
     if "power" in first_row:
         mode = "direct_power"
@@ -37,6 +39,10 @@ def calculate_energy(
             
             if power is not None:
                 powers.append(power)
+                power_series.append({
+                    "timestamp": ts,
+                    "power_w": power
+                })
             
             if i > 0:
                 prev_row = rows[i - 1]
@@ -58,16 +64,19 @@ def calculate_energy(
         
         return {
             "success": True,
-            "total_kwh": round(total_kwh, 2),
-            "total_wh": round(total_wh, 2),
-            "avg_power_w": round(sum(powers) / len(powers), 2) if powers else 0,
-            "peak_power_w": round(max(powers), 2) if powers else 0,
-            "min_power_w": round(min(powers), 2) if powers else 0,
-            "data_points": len(rows),
-            "computation_mode": mode,
-            "phase_type_used": phase_type,
-            "duration_hours": round((last_ts - first_ts).total_seconds() / 3600, 2) if first_ts and last_ts else 0,
-            "daily_kwh": daily_kwh
+            "data": {
+                "total_kwh": round(total_kwh, 2),
+                "total_wh": round(total_wh, 2),
+                "avg_power_w": round(sum(powers) / len(powers), 2) if powers else 0,
+                "peak_power_w": round(max(powers), 2) if powers else 0,
+                "min_power_w": round(min(powers), 2) if powers else 0,
+                "data_points": len(rows),
+                "computation_mode": mode,
+                "phase_type_used": phase_type,
+                "duration_hours": round((last_ts - first_ts).total_seconds() / 3600, 2) if first_ts and last_ts else 0,
+                "daily_kwh": daily_kwh,
+                "power_series": power_series
+            }
         }
     
     has_voltage = "voltage" in first_row
@@ -100,6 +109,10 @@ def calculate_energy(
                 power_w = row["voltage"] * row["current"] * row["power_factor"]
             
             powers.append(power_w)
+            power_series.append({
+                "timestamp": ts,
+                "power_w": power_w
+            })
             derived_rows.append({
                 "timestamp": ts,
                 "power": power_w
@@ -125,21 +138,23 @@ def calculate_energy(
         
         return {
             "success": True,
-            "total_kwh": round(total_kwh, 2),
-            "total_wh": round(total_wh, 2),
-            "avg_power_w": round(sum(powers) / len(powers), 2) if powers else 0,
-            "peak_power_w": round(max(powers), 2) if powers else 0,
-            "min_power_w": round(min(powers), 2) if powers else 0,
-            "data_points": len(derived_rows),
-            "computation_mode": mode,
-            "phase_type_used": phase_type,
-            "duration_hours": round((last_ts - first_ts).total_seconds() / 3600, 2) if first_ts and last_ts else 0,
-            "daily_kwh": daily_kwh,
-            "_derived_rows": derived_rows
+            "data": {
+                "total_kwh": round(total_kwh, 2),
+                "total_wh": round(total_wh, 2),
+                "avg_power_w": round(sum(powers) / len(powers), 2) if powers else 0,
+                "peak_power_w": round(max(powers), 2) if powers else 0,
+                "min_power_w": round(min(powers), 2) if powers else 0,
+                "data_points": len(derived_rows),
+                "computation_mode": mode,
+                "phase_type_used": phase_type,
+                "duration_hours": round((last_ts - first_ts).total_seconds() / 3600, 2) if first_ts and last_ts else 0,
+                "daily_kwh": daily_kwh,
+                "power_series": power_series
+            }
         }
     
     return {
         "success": False,
         "error_code": "INSUFFICIENT_TELEMETRY_DATA",
-        "message": "Required parameters (power OR voltage/current/power_factor) not available."
+        "error_message": "Required parameters (power OR voltage/current/power_factor) not available."
     }

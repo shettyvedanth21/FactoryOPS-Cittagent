@@ -264,50 +264,50 @@ def get_comparison_report_template():
 <body>
     <div class="header">
         <h1>Energy Comparison Report</h1>
-        <p><strong>Comparing:</strong> {{ label_a }} vs {{ label_b }}</p>
+        <p><strong>Comparing:</strong> {{ device_a_name }} vs {{ device_b_name }}</p>
         <p><strong>Period:</strong> {{ start_date }} to {{ end_date }}</p>
         <p><strong>Generated:</strong> {{ generated_at }}</p>
     </div>
     
-    {% if comparison.metrics %}
+    {% if comparison.energy_comparison %}
     <div class="section">
-        <h2>Metrics Comparison</h2>
+        <h2>Energy Comparison</h2>
         <table>
-            <tr><th>Metric</th><th>{{ label_a }}</th><th>{{ label_b }}</th><th>Difference</th><th>% Diff</th></tr>
-            {% for metric, vals in comparison.metrics.items() %}
-            <tr>
-                <td>{{ metric }}</td>
-                <td>{{ vals.a }}</td>
-                <td>{{ vals.b }}</td>
-                <td>{{ vals.diff }}</td>
-                <td>{{ vals.diff_pct if vals.diff_pct else 'N/A' }}</td>
-            </tr>
-            {% endfor %}
+            <tr><th>Device</th><th>Energy (kWh)</th></tr>
+            <tr><td>{{ device_a_name }}</td><td>{{ comparison.energy_comparison.device_a_kwh }}</td></tr>
+            <tr><td>{{ device_b_name }}</td><td>{{ comparison.energy_comparison.device_b_kwh }}</td></tr>
         </table>
+        <p><strong>Difference:</strong> {{ comparison.energy_comparison.difference_kwh }} kWh ({{ comparison.energy_comparison.difference_percent }}%)</p>
+        <p><strong>Higher Consumer:</strong> {{ comparison.energy_comparison.higher_consumer }}</p>
     </div>
     {% endif %}
     
-    {% if comparison_chart %}
+    {% if comparison.demand_comparison %}
     <div class="section">
-        <div class="chart-container">
-            <img src="{{ comparison_chart }}" alt="Comparison Chart" />
-        </div>
+        <h2>Demand Comparison</h2>
+        <table>
+            <tr><th>Device</th><th>Peak Demand (kW)</th></tr>
+            <tr><td>{{ device_a_name }}</td><td>{{ comparison.demand_comparison.device_a_peak_kw }}</td></tr>
+            <tr><td>{{ device_b_name }}</td><td>{{ comparison.demand_comparison.device_b_peak_kw }}</td></tr>
+        </table>
+        <p><strong>Difference:</strong> {{ comparison.demand_comparison.difference_kw }} kW ({{ comparison.demand_comparison.difference_percent }}%)</p>
+        <p><strong>Higher Demand:</strong> {{ comparison.demand_comparison.higher_demand }}</p>
     </div>
     {% endif %}
     
-    {% if comparison.winner %}
-    <div class="winner">
-        <h3>Winner: {{ comparison.winner }}</h3>
-        <p>{{ comparison.efficiency_gap_pct }}% more efficient</p>
-    </div>
-    {% endif %}
-    
-    {% if comparison.insights %}
+    {% if insights %}
     <div class="section">
         <h2>Key Insights</h2>
-        {% for insight in comparison.insights %}
+        {% for insight in insights %}
         <div class="insight">{{ insight }}</div>
         {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if winner %}
+    <div class="winner">
+        <h3>Winner: {{ winner }}</h3>
+        <p>{{ winner }} is the more efficient choice based on the analysis.</p>
     </div>
     {% endif %}
 </body>
